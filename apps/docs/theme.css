@@ -13,6 +13,13 @@ body {
   font-weight: 500;
 }
 
+/* 上下端のバウンスで中身の外側 (地の色) が覗くのを止める。
+   Safari はルートのスクロールを body 側で見ることがあるので両方に置く。 */
+html,
+body {
+  overscroll-behavior-y: none;
+}
+
 .prose :where(h1, h2, h3, h4) {
   font-weight: 600;
 }
