@@ -13,19 +13,19 @@ open out/standard/compare.png
 ```
 
 ```
-stitchgen input.svg -o out/ [--size 60] [--border satin|none] [--palette palette.json] [--config config.toml] [--debug]
+stitchgen input.svg -o out/ [--size 60] [--border satin|outline|none] [--palette palette.json] [--config config.toml] [--debug]
 ```
 
 Paths are relative to the mounted directory (`/work`). To convert several SVGs, loop over them in the shell.
 
-| Output        | Contents                                                                                                                                                            |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `design.pes`  | Brother embroidery data (primary output)                                                                                                                            |
-| `design.dst`  | Tajima DST for outside or multi-needle machines                                                                                                                     |
-| `preview.png` | Stitch simulation. The short side is 2000 px, so individual threads are visible. Each stitch is shaded by its direction against a top-left light, like thread sheen |
-| `compare.png` | Colour-reduced artwork next to the simulation, for checking that the avatar is still recognisable                                                                   |
-| `meta.json`   | Stitch count, thread order, colour changes, estimated time, size, warnings                                                                                          |
-| `debug/`      | Intermediate SVG of every step (`--debug` only). `07_inkstitch.svg` is the file sent to Ink/Stitch                                                                  |
+| Output        | Contents                                                                                                                                                                                                        |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `design.pes`  | Brother embroidery data (primary output)                                                                                                                                                                        |
+| `design.dst`  | Tajima DST for outside or multi-needle machines                                                                                                                                                                 |
+| `preview.png` | Stitch simulation (short side 2000 px). Each stitch is drawn as a round, glossy thread that casts a soft shadow on the fabric; its sheen depends on its direction against a top-left light, as with real thread |
+| `compare.png` | Colour-reduced artwork next to the simulation, for checking that the avatar is still recognisable                                                                                                               |
+| `meta.json`   | Stitch count, thread order, colour changes, estimated time, size, warnings                                                                                                                                      |
+| `debug/`      | Intermediate SVG of every step (`--debug` only). `07_inkstitch.svg` is the file sent to Ink/Stitch                                                                                                              |
 
 Exit codes: `0` success, `1` success with warnings (also listed in `meta.json`), `2` conversion failed.
 
@@ -72,13 +72,17 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
 3. **Outline** (`outline.py`). The silhouette, with notches narrower than 2.5 mm closed, holes dropped and
    floating parts (items) bridged.
 4. **Border** (`border.py`). The avatar already has a drawn outer outline, so the border replaces it instead of
-   adding a second edge.
-   - It is a 2.5 mm satin that reaches `border.inset_mm` (1.2 mm) inside the silhouette, just over the drawn
-     line. The remaining 1.3 mm lies outside it, and its outer edge is the patch edge.
-   - Gaps in the hand-drawn line and the straight crop at the bottom are closed by the same satin.
-   - The artwork is cut back to the area inside the border before stitch types are chosen, so the drawn outer
-     line is not sewn twice.
-   - A running stitch along the border's centre is sewn first, to position the fabric.
+   adding a second edge. Two modes:
+   - `--border satin` (default, patches). A 2.5 mm satin that reaches `border.inset_mm` (1.2 mm) inside the
+     silhouette, just over the drawn line; the remaining 1.3 mm lies outside, and its outer edge is the heat-cut
+     patch edge. A running stitch along its centre is sewn first, to position the fabric.
+   - `--border outline` (direct embroidery on a garment). The outer line is sewn like every other line, a 1.1 mm
+     satin entirely inside the silhouette, with no placement run and nothing added outside the artwork.
+
+   In both modes, gaps in the hand-drawn line and the straight crop at the bottom are closed by the same satin.
+   The artwork is cut back to the area inside the border before stitch types are chosen, so the drawn outer
+   line is not sewn twice.
+
 5. **Stitch attributes** (`attributes.py`, `satin.py`). Splits each region into thick and thin parts with a
    morphological opening of `thin.threshold_mm`.
    - Thick parts are filled with straight stitches of random length (Ink/Stitch's random stitch length),

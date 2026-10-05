@@ -40,6 +40,7 @@ class ThinConfig:
     satin_min_mm: float
     satin_max_mm: float
     zigzag_spacing_mm: float
+    pull_compensation_mm: float
     spur_min_mm: float
     simplify_mm: float
 
@@ -53,6 +54,7 @@ class OutlineConfig:
 class BorderConfig:
     width_mm: float
     inset_mm: float
+    outline_width_mm: float
     zigzag_spacing_mm: float
     color: str
     placement_stitch_length_mm: float
@@ -138,6 +140,7 @@ def load_config(path: str | Path | None = None) -> Config:
             satin_min_mm=float(raw["thin"]["satin_min_mm"]),
             satin_max_mm=float(raw["thin"]["satin_max_mm"]),
             zigzag_spacing_mm=float(raw["thin"]["zigzag_spacing_mm"]),
+            pull_compensation_mm=float(raw["thin"]["pull_compensation_mm"]),
             spur_min_mm=float(raw["thin"]["spur_min_mm"]),
             simplify_mm=float(raw["thin"]["simplify_mm"]),
         ),
@@ -145,6 +148,7 @@ def load_config(path: str | Path | None = None) -> Config:
         border=BorderConfig(
             width_mm=float(raw["border"]["width_mm"]),
             inset_mm=float(raw["border"]["inset_mm"]),
+            outline_width_mm=float(raw["border"]["outline_width_mm"]),
             zigzag_spacing_mm=float(raw["border"]["zigzag_spacing_mm"]),
             color=str(raw["border"]["color"]),
             placement_stitch_length_mm=float(raw["border"]["placement_stitch_length_mm"]),

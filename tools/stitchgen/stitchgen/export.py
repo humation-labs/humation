@@ -66,15 +66,17 @@ def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config, guided: bool = T
         elif item.kind == "satin" and item.satin is not None:
             # Two rails with equal node counts: Ink/Stitch uses each node pair as a rung.
             d = " ".join(_polyline_d(rail, frame) for rail in item.satin.rails)
-            border = item.role == "border"
+            # Wide satins (the heat-cut edge) need zigzag + contour underlay to stand up; narrow lines a centre walk.
+            wide = item.satin.width >= 2.0
             narrow = item.satin.width < 1.2
             attrs = {
                 "style": f"fill:none;stroke:{item.thread.hex};stroke-width:0.1",
                 "inkstitch:satin_column": "True",
-                "inkstitch:zigzag_spacing_mm": fmt_coord(cfg.border.zigzag_spacing_mm if border else cfg.thin.zigzag_spacing_mm),
-                "inkstitch:center_walk_underlay": "False" if border or narrow else "True",
-                "inkstitch:contour_underlay": "True" if border else "False",
-                "inkstitch:zigzag_underlay": "True" if border else "False",
+                "inkstitch:zigzag_spacing_mm": fmt_coord(cfg.border.zigzag_spacing_mm if wide else cfg.thin.zigzag_spacing_mm),
+                "inkstitch:center_walk_underlay": "False" if wide or narrow else "True",
+                "inkstitch:contour_underlay": "True" if wide else "False",
+                "inkstitch:zigzag_underlay": "True" if wide else "False",
+                "inkstitch:pull_compensation_mm": fmt_coord(cfg.thin.pull_compensation_mm),
             }
         else:
             d = geom_to_path_d(frame.place(item.geometry))

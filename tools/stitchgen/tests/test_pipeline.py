@@ -275,3 +275,24 @@ def test_fills_follow_motif_flows_in_inkstitch_svg():
     assert 'inkstitch:enable_random_stitch_length="True"' in svg
     straight = inkstitch_svg(sewing_order(attributed, None, BLACK), Frame.around(shape.bounds), CFG, guided=False)
     assert "guided_fill" not in straight and "guide-line" not in straight
+
+
+def test_outline_border_mode_is_thin_and_has_no_placement_run():
+    shape = box(0, 0, 30, 30)
+    border = make_border(shape, CFG.border.outline_width_mm, CFG.border.outline_width_mm)
+    assert border.outline.bounds == pytest.approx((0, 0, 30, 30), abs=0.01)  # nothing added outside the artwork
+    assert border.satin.width == CFG.border.outline_width_mm
+    reduced = ReducedDrawing([ColorRegion(PALETTE[2], border.inner)], [])
+    items = sewing_order(assign_attributes(reduced, CFG), border, BLACK, placement=False)
+    assert [i.role for i in items] == ["fill", "border"]
+
+
+@pytest.mark.inkstitch
+@pytest.mark.skipif(not Path(os.environ.get("INKSTITCH_BIN", DEFAULT_INKSTITCH)).exists(), reason="Ink/Stitch not installed")
+def test_end_to_end_outline_mode(tmp_path):
+    from stitchgen.cli import main
+
+    out = tmp_path / "out"
+    assert main([str(SAMPLES / "standard.svg"), "-o", str(out), "--border", "outline"]) in (0, 1)
+    meta = json.loads((out / "meta.json").read_text())
+    assert meta["border"] == "outline" and meta["size_mm"]["height"] < 61.5

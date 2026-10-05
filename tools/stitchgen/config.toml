@@ -15,9 +15,9 @@ min_mm = 1.0               # parts smaller than this in both dimensions are drop
 [fill]
 # Fills are straight stitches of random length (no tatami brick pattern) laid in rows that follow the motif.
 angles = [45.0, 135.0]     # straight rows for parts without a flow, alternated between touching fills
-row_spacing_mm = 0.3
+row_spacing_mm = 0.28
 max_stitch_length_mm = 4.0
-random_jitter_percent = 35 # stitch length variation, hides needle-point patterns like long-and-short stitch
+random_jitter_percent = 15 # stitch length variation: hides needle-point patterns, keeps the surface even
 underlay = true
 overlap_mm = 0.3           # fills grow under neighbouring satins to avoid gaps
 
@@ -31,7 +31,8 @@ bottom = "drape"
 threshold_mm = 2.5         # regions narrower than this become satin lines
 satin_min_mm = 1.0          # lines keep their drawn width, but never narrower than this
 satin_max_mm = 2.5
-zigzag_spacing_mm = 0.35
+zigzag_spacing_mm = 0.33
+pull_compensation_mm = 0.15 # satins shrink across their width when sewn
 spur_min_mm = 1.0          # skeleton branches shorter than this are pruned
 simplify_mm = 0.1
 
@@ -39,10 +40,12 @@ simplify_mm = 0.1
 concavity_fill_mm = 2.5    # notches narrower than this are closed
 
 [border]
-width_mm = 2.5             # satin width (2.5-3.0 for a heat-cut edge)
-inset_mm = 1.2             # how far the border reaches inside the silhouette: just over the drawn outer
-                           # outline (~1 mm at 60 mm), which it replaces; the rest of the width lies outside
-zigzag_spacing_mm = 0.38
+# --border satin   : patch edge for heat cutting. A wide satin that replaces the drawn outer outline.
+# --border outline : direct embroidery. The outer outline is sewn like the other lines, nothing is added.
+width_mm = 2.5             # satin mode width (2.5-3.0 for a heat-cut edge)
+inset_mm = 1.2             # satin mode: how far it reaches inside the silhouette, just over the drawn outline
+outline_width_mm = 1.1     # outline mode width; the whole satin lies inside the silhouette
+zigzag_spacing_mm = 0.36
 color = "900"              # brother_number of the border / placement thread
 placement_stitch_length_mm = 2.5
 

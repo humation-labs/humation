@@ -47,7 +47,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("input", type=Path)
     p.add_argument("-o", "--out", type=Path, required=True, help="output directory")
     p.add_argument("--size", type=float, default=None, help="avatar size in mm (longest side), default from config.toml")
-    p.add_argument("--border", choices=["satin", "none"], default="satin")
+    p.add_argument("--border", choices=["satin", "outline", "none"], default="satin",
+                   help="satin: wide heat-cut patch edge; outline: thin outer line for direct embroidery")
     p.add_argument("--palette", type=Path, default=None)
     p.add_argument("--config", type=Path, default=None)
     p.add_argument("--debug", action="store_true", help="keep intermediate SVGs in out/debug/")
@@ -79,7 +80,11 @@ def run(args: argparse.Namespace) -> list[Warning]:
         raise StitchgenError(f"border colour {cfg.border.color} is not in the palette")
     # 5 (prepared early). The border takes over the avatar's own outer outline, so the artwork is cut back
     # to the area inside it before stitch types are chosen.
-    border = make_border(shape, cfg.border.width_mm, cfg.border.inset_mm) if args.border == "satin" else None
+    border = None
+    if args.border == "satin":
+        border = make_border(shape, cfg.border.width_mm, cfg.border.inset_mm)
+    elif args.border == "outline":
+        border = make_border(shape, cfg.border.outline_width_mm, cfg.border.outline_width_mm)
     stitched = reduced
     if border is not None:
         clipped = [ColorRegion(r.thread, clean(r.geometry.intersection(border.inner))) for r in reduced.regions]
@@ -88,7 +93,7 @@ def run(args: argparse.Namespace) -> list[Warning]:
     attributed = assign_attributes(stitched, cfg, line_art_hex=border_thread.hex, canvas=shape)
     warnings += attributed.warnings
     # 6. order
-    items = sewing_order(attributed, border, border_thread)
+    items = sewing_order(attributed, border, border_thread, placement=args.border == "satin")
 
     frame = Frame.around((border.outline if border else shape).bounds)
     if debug:

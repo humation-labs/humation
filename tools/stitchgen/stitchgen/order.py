@@ -29,9 +29,9 @@ class Item:
     flow: str | None = None
 
 
-def sewing_order(attributed: Attributed, border: Border | None, border_thread: PaletteColor | None) -> list[Item]:
+def sewing_order(attributed: Attributed, border: Border | None, border_thread: PaletteColor | None, placement: bool = True) -> list[Item]:
     items: list[Item] = []
-    if border is not None and border_thread is not None:
+    if placement and border is not None and border_thread is not None:
         items.append(Item("run", border_thread, border.satin.centre, "placement"))
 
     # Fills: thread groups by total area (largest first), regions by area within a thread.
