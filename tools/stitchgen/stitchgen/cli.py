@@ -11,12 +11,12 @@ from pathlib import Path
 
 from shapely.geometry import LineString, Polygon
 
-from .attributes import assign_attributes
-from .border import make_border
+from .attributes import FillPart, assign_attributes
+from .border import make_border, make_patch
 from .colors import ColorRegion, ReducedDrawing, reduce_colors
 from .config import load_config, load_palette
 from .export import Frame, inkstitch_svg, read_back, run_inkstitch, summarize, thread_for
-from .geometry import clean, union
+from .geometry import clean, polygons, union
 from .normalize import normalize
 from .order import sewing_order
 from .outline import silhouette
@@ -47,8 +47,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("input", type=Path)
     p.add_argument("-o", "--out", type=Path, required=True, help="output directory")
     p.add_argument("--size", type=float, default=None, help="avatar size in mm (longest side), default from config.toml")
-    p.add_argument("--border", choices=["satin", "outline", "none"], default="satin",
-                   help="satin: wide heat-cut patch edge; outline: thin outer line for direct embroidery")
+    p.add_argument("--border", choices=["outline", "satin", "none"], default="outline",
+                   help="outline: thin outer line (default); satin: older patch style with a wide outer edge")
+    p.add_argument("--no-patch", action="store_true", help="direct embroidery: no background margin or cut edge")
     p.add_argument("--palette", type=Path, default=None)
     p.add_argument("--config", type=Path, default=None)
     p.add_argument("--debug", action="store_true", help="keep intermediate SVGs in out/debug/")
@@ -92,12 +93,24 @@ def run(args: argparse.Namespace) -> list[Warning]:
     # 4. stitch attributes (the border thread doubles as the line-art thread)
     attributed = assign_attributes(stitched, cfg, line_art_hex=border_thread.hex, canvas=shape)
     warnings += attributed.warnings
+    # 5b. patch: background margin and heat-cut edge around the artwork (the satin border already is one)
+    patch = patch_thread = None
+    if not args.no_patch and args.border != "satin":
+        threads = {p.brother_number: p for p in palette}
+        background_thread, patch_thread = threads.get(cfg.patch.background), threads.get(cfg.patch.edge)
+        if background_thread is None or patch_thread is None:
+            raise StitchgenError("patch background/edge colours must be palette brother_numbers")
+        painted = union([*(r.geometry for r in stitched.regions), *([border.outline] if border else [])])
+        patch = make_patch(painted, shape, cfg.patch.margin_mm, cfg.patch.edge_width_mm, cfg.patch.smooth_mm, cfg.fill.overlap_mm)
+        for part in polygons(patch.background):
+            if part.area >= cfg.detail.min_mm ** 2:
+                attributed.fills.append(FillPart(background_thread, part, angle=cfg.fill.angles[0], role="background"))
     # 6. order
-    items = sewing_order(attributed, border, border_thread, placement=args.border == "satin")
+    items = sewing_order(attributed, border, border_thread, placement=args.border == "satin", patch=patch, patch_thread=patch_thread)
 
-    frame = Frame.around((border.outline if border else shape).bounds)
+    frame = Frame.around((patch.outline if patch else border.outline if border else shape).bounds)
     if debug:
-        _write_debug(debug, frame, drawing, reduced, shape, attributed, border)
+        _write_debug(debug, frame, drawing, reduced, shape, attributed, border, patch)
 
     # 7. export
     try:
@@ -136,6 +149,7 @@ def run(args: argparse.Namespace) -> list[Warning]:
         "size_mm": {"width": summary.width_mm, "height": summary.height_mm},
         "avatar_size_mm": {"width": drawing.width_mm, "height": drawing.height_mm},
         "border": args.border,
+        "patch": patch is not None,
         "warnings": [w.to_json() for w in warnings],
     }
     (out / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -166,7 +180,7 @@ def _thread_json(hex_color: str, palette) -> dict[str, str]:
     return {"brother_number": thread.brother_number, "name": thread.name, "hex": thread.hex}
 
 
-def _write_debug(debug: Path, frame: Frame, drawing, reduced, shape, attributed, border) -> None:
+def _write_debug(debug: Path, frame: Frame, drawing, reduced, shape, attributed, border, patch=None) -> None:
     def doc(name: str, body: list[str]) -> None:
         (debug / name).write_text(svg_document(frame.width, frame.height, body), encoding="utf-8")
 
@@ -190,4 +204,6 @@ def _write_debug(debug: Path, frame: Frame, drawing, reduced, shape, attributed,
     body = [fill(f.geometry, f.thread.hex) for f in attributed.fills] + [satin(s.satin, s.thread.hex) for s in attributed.satins]
     if border is not None:
         body.append(satin(border.satin, "#000000"))
+    if patch is not None:
+        body.append(satin(patch.edge, "#9a9a9a"))
     doc("05_border.svg", body)

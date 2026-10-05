@@ -61,6 +61,15 @@ class BorderConfig:
 
 
 @dataclass(frozen=True)
+class PatchConfig:
+    margin_mm: float
+    edge_width_mm: float
+    smooth_mm: float
+    background: str
+    edge: str
+
+
+@dataclass(frozen=True)
 class GuardrailsConfig:
     max_stitches: int
     max_color_changes: int
@@ -82,6 +91,7 @@ class Config:
     thin: ThinConfig
     outline: OutlineConfig
     border: BorderConfig
+    patch: PatchConfig
     guardrails: GuardrailsConfig
     export: ExportConfig
 
@@ -152,6 +162,13 @@ def load_config(path: str | Path | None = None) -> Config:
             zigzag_spacing_mm=float(raw["border"]["zigzag_spacing_mm"]),
             color=str(raw["border"]["color"]),
             placement_stitch_length_mm=float(raw["border"]["placement_stitch_length_mm"]),
+        ),
+        patch=PatchConfig(
+            margin_mm=float(raw["patch"]["margin_mm"]),
+            edge_width_mm=float(raw["patch"]["edge_width_mm"]),
+            smooth_mm=float(raw["patch"]["smooth_mm"]),
+            background=str(raw["patch"]["background"]),
+            edge=str(raw["patch"]["edge"]),
         ),
         guardrails=GuardrailsConfig(
             max_stitches=int(raw["guardrails"]["max_stitches"]),

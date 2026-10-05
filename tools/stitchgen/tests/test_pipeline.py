@@ -232,6 +232,7 @@ def test_end_to_end(tmp_path, name):
     out = tmp_path / "out"
     assert main([str(SAMPLES / f"{name}.svg"), "-o", str(out)]) in (0, 1)
     meta = json.loads((out / "meta.json").read_text())
+    assert meta["border"] == "outline" and meta["patch"]
     summary = summarize(pyembroidery.read(str(out / "design.pes")))
     assert summary.stitch_count == meta["stitch_count"]
     assert summary.color_changes == meta["color_changes"] == len(meta["color_order"]) - 1
@@ -289,10 +290,34 @@ def test_outline_border_mode_is_thin_and_has_no_placement_run():
 
 @pytest.mark.inkstitch
 @pytest.mark.skipif(not Path(os.environ.get("INKSTITCH_BIN", DEFAULT_INKSTITCH)).exists(), reason="Ink/Stitch not installed")
-def test_end_to_end_outline_mode(tmp_path):
+def test_end_to_end_direct_embroidery(tmp_path):
     from stitchgen.cli import main
 
     out = tmp_path / "out"
-    assert main([str(SAMPLES / "standard.svg"), "-o", str(out), "--border", "outline"]) in (0, 1)
+    assert main([str(SAMPLES / "standard.svg"), "-o", str(out), "--no-patch"]) in (0, 1)
     meta = json.loads((out / "meta.json").read_text())
-    assert meta["border"] == "outline" and meta["size_mm"]["height"] < 61.5
+    assert meta["border"] == "outline" and not meta["patch"] and meta["size_mm"]["height"] < 61.5
+
+
+def test_patch_adds_background_margin_and_edge():
+    from stitchgen.border import make_patch
+
+    art = box(0, 0, 20, 30)
+    patch = make_patch(art, art, CFG.patch.margin_mm, CFG.patch.edge_width_mm, CFG.patch.smooth_mm, CFG.fill.overlap_mm)
+    grow = CFG.patch.margin_mm + CFG.patch.edge_width_mm
+    assert patch.outline.bounds == pytest.approx((-grow, -grow, 20 + grow, 30 + grow), abs=0.05)
+    assert not patch.background.intersects(box(1, 1, 19, 29))  # artwork is not covered by background
+    assert patch.background.contains(box(-1.5, 5, -0.5, 25))  # the margin is
+    border = make_border(art, CFG.border.outline_width_mm, CFG.border.outline_width_mm)
+    reduced = ReducedDrawing([ColorRegion(PALETTE[2], border.inner)], [])
+    attributed = assign_attributes(reduced, CFG)
+    white = next(p for p in PALETTE if p.brother_number == CFG.patch.background)
+    attributed.fills.append(type(attributed.fills[0])(white, polygons_of(patch.background)[0], role="background"))
+    items = sewing_order(attributed, border, BLACK, placement=False, patch=patch, patch_thread=white)
+    assert [i.role for i in items][0] == "placement" and [i.role for i in items][-2:] == ["border", "edge"]
+
+
+def polygons_of(geom):
+    from stitchgen.geometry import polygons
+
+    return polygons(geom)

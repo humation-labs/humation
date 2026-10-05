@@ -9,7 +9,7 @@ from typing import Literal
 from shapely.geometry import LineString, Polygon
 
 from .attributes import Attributed, SatinLine
-from .border import Border
+from .border import Border, Patch
 from .config import PaletteColor
 from .satin import Satin
 
@@ -29,9 +29,13 @@ class Item:
     flow: str | None = None
 
 
-def sewing_order(attributed: Attributed, border: Border | None, border_thread: PaletteColor | None, placement: bool = True) -> list[Item]:
+def sewing_order(attributed: Attributed, border: Border | None, border_thread: PaletteColor | None, placement: bool = True,
+                 patch: Patch | None = None, patch_thread: PaletteColor | None = None) -> list[Item]:
+    """placement run -> fills (patch background included) -> line satins -> outer line -> patch edge."""
     items: list[Item] = []
-    if placement and border is not None and border_thread is not None:
+    if patch is not None and patch_thread is not None:
+        items.append(Item("run", patch_thread, patch.edge.centre, "placement"))
+    elif placement and border is not None and border_thread is not None:
         items.append(Item("run", border_thread, border.satin.centre, "placement"))
 
     # Fills: thread groups by total area (largest first), regions by area within a thread.
@@ -61,6 +65,8 @@ def sewing_order(attributed: Attributed, border: Border | None, border_thread: P
 
     if border is not None and border_thread is not None:
         items.append(Item("satin", border_thread, border.satin.centre, "border", satin=border.satin))
+    if patch is not None and patch_thread is not None:
+        items.append(Item("satin", patch_thread, patch.edge.centre, "edge", satin=patch.edge))
     return items
 
 
