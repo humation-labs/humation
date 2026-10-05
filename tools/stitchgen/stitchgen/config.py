@@ -48,8 +48,8 @@ class OutlineConfig:
 
 @dataclass(frozen=True)
 class BorderConfig:
-    offset_mm: float
     width_mm: float
+    inset_mm: float
     zigzag_spacing_mm: float
     color: str
     placement_stitch_length_mm: float
@@ -138,8 +138,8 @@ def load_config(path: str | Path | None = None) -> Config:
         ),
         outline=OutlineConfig(concavity_fill_mm=float(raw["outline"]["concavity_fill_mm"])),
         border=BorderConfig(
-            offset_mm=float(raw["border"]["offset_mm"]),
             width_mm=float(raw["border"]["width_mm"]),
+            inset_mm=float(raw["border"]["inset_mm"]),
             zigzag_spacing_mm=float(raw["border"]["zigzag_spacing_mm"]),
             color=str(raw["border"]["color"]),
             placement_stitch_length_mm=float(raw["border"]["placement_stitch_length_mm"]),

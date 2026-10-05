@@ -41,8 +41,8 @@ class Frame:
 def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config) -> str:
     body = []
     for n, item in enumerate(items, start=1):
-        d = geom_to_path_d(frame.place(item.geometry))
         if item.kind == "fill":
+            d = geom_to_path_d(frame.place(item.geometry))
             attrs = {
                 "style": f"fill:{item.thread.hex};fill-rule:evenodd;stroke:none",
                 "inkstitch:angle": fmt_coord(item.angle),
@@ -50,19 +50,21 @@ def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config) -> str:
                 "inkstitch:row_spacing_mm": fmt_coord(cfg.fill.row_spacing_mm),
                 "inkstitch:max_stitch_length_mm": fmt_coord(cfg.fill.max_stitch_length_mm),
             }
-        elif item.kind == "satin":
+        elif item.kind == "satin" and item.satin is not None:
+            # Two rails with equal node counts: Ink/Stitch uses each node pair as a rung.
+            d = " ".join(_polyline_d(rail, frame) for rail in item.satin.rails)
             border = item.role == "border"
-            if item.geometry.coords[0] == item.geometry.coords[-1]:
-                d += " Z"
+            narrow = item.satin.width < 1.2
             attrs = {
-                "style": f"fill:none;stroke:{item.thread.hex};stroke-width:{fmt_coord(item.width)}",
+                "style": f"fill:none;stroke:{item.thread.hex};stroke-width:0.1",
                 "inkstitch:satin_column": "True",
                 "inkstitch:zigzag_spacing_mm": fmt_coord(cfg.border.zigzag_spacing_mm if border else cfg.thin.zigzag_spacing_mm),
-                "inkstitch:center_walk_underlay": "False" if border else "True",
+                "inkstitch:center_walk_underlay": "False" if border or narrow else "True",
                 "inkstitch:contour_underlay": "True" if border else "False",
                 "inkstitch:zigzag_underlay": "True" if border else "False",
             }
         else:
+            d = geom_to_path_d(frame.place(item.geometry))
             attrs = {
                 "style": f"fill:none;stroke:{item.thread.hex};stroke-width:0.1",
                 "inkstitch:running_stitch_length_mm": fmt_coord(cfg.border.placement_stitch_length_mm),
@@ -74,6 +76,11 @@ def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config) -> str:
         rendered = " ".join(f'{k}="{v}"' for k, v in attrs.items())
         body.append(f'<path id="{item.role}-{n:03d}" d="{d}" {rendered}/>')
     return svg_document(frame.width, frame.height, body)
+
+
+def _polyline_d(points, frame: Frame) -> str:
+    coords = [(x + frame.dx, y + frame.dy) for x, y in points]
+    return "M " + " L ".join(f"{fmt_coord(x)} {fmt_coord(y)}" for x, y in coords)
 
 
 def run_inkstitch(svg_path: Path, fmt: str, out_path: Path, timeout_s: int) -> None:

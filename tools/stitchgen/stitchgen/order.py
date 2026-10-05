@@ -11,6 +11,7 @@ from shapely.geometry import LineString, Polygon
 from .attributes import Attributed, SatinLine
 from .border import Border
 from .config import PaletteColor
+from .satin import Satin
 
 Kind = Literal["run", "fill", "satin"]
 
@@ -22,13 +23,13 @@ class Item:
     geometry: Polygon | LineString
     role: str  # placement | fill | line | border
     angle: float = 0.0
-    width: float = 0.0
+    satin: Satin | None = None
 
 
 def sewing_order(attributed: Attributed, border: Border | None, border_thread: PaletteColor | None) -> list[Item]:
     items: list[Item] = []
     if border is not None and border_thread is not None:
-        items.append(Item("run", border_thread, border.centerline, "placement"))
+        items.append(Item("run", border_thread, border.satin.centre, "placement"))
 
     # Fills: thread groups by total area (largest first), regions by area within a thread.
     fill_area: dict[str, float] = {}
@@ -56,14 +57,14 @@ def sewing_order(attributed: Attributed, border: Border | None, border_thread: P
         _add_satins(items, attributed.satins, line_art)
 
     if border is not None and border_thread is not None:
-        items.append(Item("satin", border_thread, border.centerline, "border", width=border.width))
+        items.append(Item("satin", border_thread, border.satin.centre, "border", satin=border.satin))
     return items
 
 
 def _add_satins(items: list[Item], satins: list[SatinLine], hex_: str) -> None:
     position = _end_point(items[-1]) if items else (0.0, 0.0)
     for satin in _nearest_path([s for s in satins if s.thread.hex == hex_], position):
-        items.append(Item("satin", satin.thread, satin.line, "line", width=satin.width))
+        items.append(Item("satin", satin.thread, satin.satin.centre, "line", satin=satin.satin))
 
 
 def _end_point(item: Item) -> tuple[float, float]:
@@ -74,22 +75,22 @@ def _end_point(item: Item) -> tuple[float, float]:
 
 
 def _nearest_path(satins: list[SatinLine], start: tuple[float, float]) -> list[SatinLine]:
-    """Greedy nearest-neighbour tour; open lines are flipped to start at the nearer end."""
-    remaining = sorted(satins, key=lambda s: tuple(s.line.coords[0]))
+    """Greedy nearest-neighbour tour; open satins are flipped to start at the nearer end."""
+    remaining = sorted(satins, key=lambda s: tuple(s.satin.centre.coords[0]))
     ordered: list[SatinLine] = []
     position = start
     while remaining:
         best_i, best_d, flip = 0, math.inf, False
         for i, s in enumerate(remaining):
-            a, b = s.line.coords[0], s.line.coords[-1]
+            a, b = s.satin.centre.coords[0], s.satin.centre.coords[-1]
             da, db = math.dist(position, a), math.dist(position, b)
             if da < best_d:
                 best_i, best_d, flip = i, da, False
-            if not s.closed and db < best_d:
+            if not s.satin.closed and db < best_d:
                 best_i, best_d, flip = i, db, True
         s = remaining.pop(best_i)
         if flip:
-            s = SatinLine(s.thread, LineString(list(s.line.coords)[::-1]), s.width, s.closed)
+            s = SatinLine(s.thread, s.satin.reversed())
         ordered.append(s)
-        position = s.line.coords[-1]
+        position = s.satin.centre.coords[-1]
     return ordered

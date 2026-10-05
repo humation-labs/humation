@@ -18,9 +18,9 @@ overlap_mm = 0.3           # fills grow under neighbouring satins to avoid gaps
 
 [thin]
 threshold_mm = 2.5         # regions narrower than this become satin lines
-satin_min_mm = 1.5
+satin_min_mm = 1.0          # lines keep their drawn width, but never narrower than this
 satin_max_mm = 2.5
-zigzag_spacing_mm = 0.4
+zigzag_spacing_mm = 0.35
 spur_min_mm = 1.0          # skeleton branches shorter than this are pruned
 simplify_mm = 0.1
 
@@ -28,8 +28,9 @@ simplify_mm = 0.1
 concavity_fill_mm = 2.5    # notches narrower than this are closed
 
 [border]
-offset_mm = 2.5            # patch edge distance from the avatar silhouette
-width_mm = 3.0             # satin width, 2.5-3.0
+width_mm = 2.5             # satin width (2.5-3.0 for a heat-cut edge)
+inset_mm = 1.2             # how far the border reaches inside the silhouette: just over the drawn outer
+                           # outline (~1 mm at 60 mm), which it replaces; the rest of the width lies outside
 zigzag_spacing_mm = 0.38
 color = "900"              # brother_number of the border / placement thread
 placement_stitch_length_mm = 2.5

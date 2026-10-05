@@ -34,14 +34,14 @@ Exit codes: `0` success, `1` success with warnings (also listed in `meta.json`),
 ```json
 {
   "input": "standard.svg",
-  "stitch_count": 8177,
+  "stitch_count": 7528,
   "color_changes": 5,
   "color_order": [
     { "brother_number": "900", "name": "Black", "hex": "#000000" },
     "..."
   ],
-  "estimated_minutes": 13.6,
-  "size_mm": { "width": 38.2, "height": 65.0 },
+  "estimated_minutes": 12.5,
+  "size_mm": { "width": 35.6, "height": 62.6 },
   "avatar_size_mm": { "width": 33.1389, "height": 60.0 },
   "border": "satin",
   "warnings": [
@@ -68,17 +68,26 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
    visible part, so the layering is resolved once and fills never stack.
 2. **Reduce colours** (`colors.py`). Maps every colour to the nearest `palette.json` thread by CIEDE2000. Merges
    the least-used threads until at most `colors.max` (6) remain. Same-thread neighbours become one region.
-3. **Outline** (`outline.py`). The silhouette with notches narrower than 2.5 mm closed and holes dropped, offset
-   2.5 mm outward. This is the patch edge.
-4. **Stitch attributes** (`attributes.py`). Splits each region into thick and thin parts with a morphological
-   opening of `thin.threshold_mm`.
+3. **Outline** (`outline.py`). The silhouette, with notches narrower than 2.5 mm closed, holes dropped and
+   floating parts (items) bridged.
+4. **Border** (`border.py`). The avatar already has a drawn outer outline, so the border replaces it instead of
+   adding a second edge.
+   - It is a 2.5 mm satin that reaches `border.inset_mm` (1.2 mm) inside the silhouette, just over the drawn
+     line. The remaining 1.3 mm lies outside it, and its outer edge is the patch edge.
+   - Gaps in the hand-drawn line and the straight crop at the bottom are closed by the same satin.
+   - The artwork is cut back to the area inside the border before stitch types are chosen, so the drawn outer
+     line is not sewn twice.
+   - A running stitch along the border's centre is sewn first, to position the fabric.
+5. **Stitch attributes** (`attributes.py`, `satin.py`). Splits each region into thick and thin parts with a
+   morphological opening of `thin.threshold_mm`.
    - Thick parts become tatami fills. Fills that touch get alternating angles (45°/135°), with underlay.
-   - Thin parts of the line-art thread (black) are skeletonised into centrelines. They become satin lines
-     1.5–2.5 mm wide with centre-walk underlay.
+   - Thin parts of the line-art thread (black) are skeletonised into centrelines. Each becomes a satin column
+     made of two rails. Each rail is offset by the line's own local half-width, with a minimum width of 1 mm.
+     Satin width therefore follows the drawn line, ends round off like the brush stroke, and the inner rail is
+     pulled in on tight bends so it never folds.
+   - Compact marks up to 5 mm long, such as eyes and short dashes, use their own contour as rails. The contour is
+     split at both ends of the long axis, so a round eye stays round.
    - Thin parts of other threads stay with their own fill.
-   - Small compact marks (eyes) become short satins.
-5. **Border** (`border.py`). A 3 mm satin with zigzag and contour underlay, whose outer edge is the patch edge.
-   A running stitch along the same path is sewn first, to position the fabric.
 6. **Order** (`order.py`). Sewing order:
    1. placement run
    2. fills, by thread total area (largest first), with each thread's own thin satins
@@ -107,7 +116,7 @@ Conversion is deterministic. The same SVG and config give byte-identical `design
 | Filled paths                           | Strokes are expanded to polygons. Text is converted with Inkscape                                                                               |
 | Flat colours                           | Gradients and patterns are replaced by one colour, with a warning                                                                               |
 | No mask, filter or image               | The conversion stops with exit code 2. Simple user-space `clip-path`s (basic shapes, as in Figma exports such as the `jacket` part) are applied |
-| Detail of at least 1 mm at output size | Thin lines are widened to satin of 1.5 mm or more, and smaller specks are dropped. Both are recorded in `warnings`                              |
+| Detail of at least 1 mm at output size | Thin lines are widened to satin of 1 mm, and smaller specks are dropped. Both are recorded in `warnings`                                        |
 
 Only the `humation-1` asset style is supported in phase 1.
 
@@ -139,13 +148,15 @@ hangs. `INKSTITCH_BIN` overrides the binary path.
 
 - The preview shows whether the data is valid. It does not predict how the thread will look, because it ignores
   pull and push, thread loft and fabric. Sewing tests decide final quality.
-- The area between the avatar and the satin border is not stitched, so the base fabric shows in closed notches.
+- Protrusions narrower than about 3 mm (a cat's tail, flower petals) are mostly taken by the border. Fur-like
+  dashes along the silhouette merge into it.
+- The area between the avatar and the border in closed notches is not stitched, so the base fabric shows there.
   A background fill is a candidate for phase 1.5.
 - Black hair merges with the black outline and border. An "embroidery style" with 4–6 colours designed on the
   Humation side is the real fix.
 
 Phase 1.5 (after the machine arrives) is sewing tests:
 
-- 2.5 mm vs 3 mm satin border
+- 2.5 mm vs 3 mm satin border, and the inset/outset split
 - tatami density and pull compensation in `config.toml`
 - heat-cut edge finish

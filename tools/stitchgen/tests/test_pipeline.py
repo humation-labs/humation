@@ -14,7 +14,7 @@ from stitchgen.export import DEFAULT_INKSTITCH, Frame, inkstitch_svg
 from stitchgen.normalize import normalize
 from stitchgen.order import sewing_order
 from stitchgen.border import make_border
-from stitchgen.outline import patch_outline
+from stitchgen.outline import silhouette
 from stitchgen.report import UnsupportedSvgError
 
 SAMPLES = Path(__file__).resolve().parent.parent / "samples"
@@ -139,28 +139,47 @@ def test_reduce_merges_down_to_max_colours():
 # --- steps 3-6 --------------------------------------------------------------------------------
 
 
-def test_outline_contains_avatar_with_offset():
-    shape = box(0, 0, 20, 40)
-    outline = patch_outline([shape], 2.5, 2.5)
-    assert outline.contains(shape)
-    assert outline.exterior.distance(shape) == pytest.approx(2.5, abs=0.05)
-
-
-def test_outline_closes_narrow_notch():
+def test_silhouette_closes_narrow_notch_and_bridges_islands():
     notched = box(0, 0, 20, 20).difference(box(9.5, 10, 10.5, 20))  # 1 mm slot
-    assert patch_outline([notched], 2.5, 0.01).contains(box(9.6, 12, 10.4, 19))
+    assert silhouette([notched], 2.5).contains(box(9.6, 12, 10.4, 19))
+    shape = silhouette([box(0, 0, 10, 10), box(11, 0, 21, 10)], 2.5)  # item floating 1 mm away
+    assert shape.contains(box(1, 1, 20, 9))
 
 
-def test_thin_region_becomes_satin_and_thick_becomes_fill():
-    ring = box(0, 0, 30, 30).difference(box(1, 1, 29, 29))  # 1 mm outline
-    face = box(1, 1, 29, 29)
+def test_border_covers_drawn_outline_and_reaches_outside():
+    shape = box(0, 0, 30, 30)
+    border = make_border(shape, CFG.border.width_mm, CFG.border.inset_mm)
+    outside = CFG.border.width_mm - CFG.border.inset_mm
+    assert border.outline.bounds == pytest.approx((-outside, -outside, 30 + outside, 30 + outside), abs=0.01)
+    assert border.inner.bounds == pytest.approx((CFG.border.inset_mm,) * 2 + (30 - CFG.border.inset_mm,) * 2, abs=0.01)
+    a, b = border.satin.rails
+    assert len(a) == len(b) and a[0] == a[-1] and b[0] == b[-1]
+
+
+def test_thin_ring_becomes_closed_satin_following_its_width():
+    ring = box(0, 0, 30, 30).difference(box(1.2, 1.2, 28.8, 28.8))  # 1.2 mm outline
+    face = box(1.2, 1.2, 28.8, 28.8)
     reduced = ReducedDrawing([ColorRegion(PALETTE[2], face), ColorRegion(BLACK, ring)], [])
     attributed = assign_attributes(reduced, CFG, line_art_hex=BLACK.hex)
     assert [f.thread.hex for f in attributed.fills] == [PALETTE[2].hex]
     assert len(attributed.satins) == 1
-    satin = attributed.satins[0]
-    assert satin.closed and satin.width == CFG.thin.satin_min_mm
-    assert satin.line.length == pytest.approx(4 * 29, rel=0.05)
+    satin = attributed.satins[0].satin
+    assert satin.closed
+    assert satin.width == pytest.approx(1.2, abs=0.15)
+    assert len(satin.rails[0]) == len(satin.rails[1])
+
+
+def test_round_dot_keeps_round_contour():
+    from shapely.geometry import Point
+
+    dot = Point(10, 10).buffer(0.6, quad_segs=16)  # 1.2 mm eye
+    reduced = ReducedDrawing([ColorRegion(BLACK, dot)], [])
+    satin = assign_attributes(reduced, CFG, line_art_hex=BLACK.hex).satins[0].satin
+    a, b = satin.rails
+    assert len(a) == len(b) >= 5
+    # Rails are the two halves of the circle, so rung lengths shrink towards both ends.
+    rungs = [((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5 for (ax, ay), (bx, by) in zip(a, b)]
+    assert max(rungs) == pytest.approx(1.2, abs=0.1) and rungs[0] < 0.2 and rungs[-1] < 0.2
 
 
 def test_neighbouring_fills_alternate_angles():
@@ -172,9 +191,12 @@ def test_neighbouring_fills_alternate_angles():
 
 def test_sewing_order_placement_fills_lines_border():
     ring = box(0, 0, 30, 30).difference(box(1, 1, 29, 29))
-    reduced = ReducedDrawing([ColorRegion(PALETTE[2], box(1, 1, 29, 29)), ColorRegion(BLACK, ring)], [])
-    attributed = assign_attributes(reduced, CFG, line_art_hex=BLACK.hex)
-    border = make_border(patch_outline([box(0, 0, 30, 30)], 2.5, 2.5), 3.0)
+    inner_line = box(10, 5, 11, 25)
+    black = ring.union(inner_line)
+    reduced = ReducedDrawing([ColorRegion(PALETTE[2], box(1, 1, 29, 29).difference(inner_line)), ColorRegion(BLACK, black)], [])
+    border = make_border(box(0, 0, 30, 30), CFG.border.width_mm, CFG.border.inset_mm)
+    clipped = ReducedDrawing([ColorRegion(r.thread, r.geometry.intersection(border.inner)) for r in reduced.regions], [])
+    attributed = assign_attributes(clipped, CFG, line_art_hex=BLACK.hex)
     items = sewing_order(attributed, border, BLACK)
     assert [i.role for i in items] == ["placement", "fill", "line", "border"]
 
@@ -182,12 +204,13 @@ def test_sewing_order_placement_fills_lines_border():
 def test_inkstitch_svg_is_deterministic_and_versioned():
     d = normalize(SAMPLES / "simple.svg", 60)
     reduced = reduce_colors(d, PALETTE, CFG.colors.max)
-    outline = patch_outline([r.geometry for r in reduced.regions], 2.5, 2.5)
+    shape = silhouette([r.geometry for r in reduced.regions], 2.5)
 
     def build() -> str:
-        attributed = assign_attributes(reduced, CFG, line_art_hex=BLACK.hex)
-        items = sewing_order(attributed, make_border(outline, 3.0), BLACK)
-        return inkstitch_svg(items, Frame.around(outline.bounds), CFG)
+        border = make_border(shape, CFG.border.width_mm, CFG.border.inset_mm)
+        attributed = assign_attributes(reduced, CFG, line_art_hex=BLACK.hex, canvas=shape)
+        items = sewing_order(attributed, border, BLACK)
+        return inkstitch_svg(items, Frame.around(border.outline.bounds), CFG)
 
     first = build()
     assert first == build()

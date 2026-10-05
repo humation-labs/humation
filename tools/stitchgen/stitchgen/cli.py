@@ -9,17 +9,17 @@ import tempfile
 import traceback
 from pathlib import Path
 
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Polygon
 
 from .attributes import assign_attributes
 from .border import make_border
-from .colors import reduce_colors
+from .colors import ColorRegion, ReducedDrawing, reduce_colors
 from .config import load_config, load_palette
 from .export import Frame, inkstitch_svg, read_back, run_inkstitch, summarize, thread_for
-from .geometry import union
+from .geometry import clean, union
 from .normalize import normalize
 from .order import sewing_order
-from .outline import patch_outline
+from .outline import silhouette
 from .preview import render_artwork, render_compare, render_preview
 from .report import StitchgenError, Warning
 from .svgio import filled_path_element, geom_to_path_d, svg_document
@@ -73,23 +73,26 @@ def run(args: argparse.Namespace) -> list[Warning]:
     reduced = reduce_colors(drawing, palette, cfg.colors.max)
     warnings += reduced.warnings
     # 3. outline
-    outline = patch_outline([r.geometry for r in reduced.regions], cfg.outline.concavity_fill_mm, cfg.border.offset_mm)
-    if not outline.buffer(0.01).contains(union(r.geometry for r in reduced.regions)):
-        warnings.append(Warning("outline_partial", "some separate parts lie outside the patch outline"))
+    shape = silhouette([r.geometry for r in reduced.regions], cfg.outline.concavity_fill_mm)
     border_thread = next((p for p in palette if p.brother_number == cfg.border.color), None)
     if border_thread is None:
         raise StitchgenError(f"border colour {cfg.border.color} is not in the palette")
+    # 5 (prepared early). The border takes over the avatar's own outer outline, so the artwork is cut back
+    # to the area inside it before stitch types are chosen.
+    border = make_border(shape, cfg.border.width_mm, cfg.border.inset_mm) if args.border == "satin" else None
+    stitched = reduced
+    if border is not None:
+        clipped = [ColorRegion(r.thread, clean(r.geometry.intersection(border.inner))) for r in reduced.regions]
+        stitched = ReducedDrawing([r for r in clipped if not r.geometry.is_empty], [])
     # 4. stitch attributes (the border thread doubles as the line-art thread)
-    attributed = assign_attributes(reduced, cfg, line_art_hex=border_thread.hex)
+    attributed = assign_attributes(stitched, cfg, line_art_hex=border_thread.hex, canvas=shape)
     warnings += attributed.warnings
-    # 5. border
-    border = make_border(outline, cfg.border.width_mm) if args.border == "satin" else None
     # 6. order
     items = sewing_order(attributed, border, border_thread)
 
-    frame = Frame.around(outline.bounds if border else union(r.geometry for r in reduced.regions).bounds)
+    frame = Frame.around((border.outline if border else shape).bounds)
     if debug:
-        _write_debug(debug, frame, drawing, reduced, outline, attributed, border)
+        _write_debug(debug, frame, drawing, reduced, shape, attributed, border)
 
     # 7. export
     with tempfile.TemporaryDirectory() as tmp:
@@ -136,8 +139,10 @@ def run(args: argparse.Namespace) -> list[Warning]:
 
 
 def _footprint(item):
+    if item.satin is not None:
+        return Polygon(item.satin.rails[0] + item.satin.rails[1][::-1]).buffer(0)
     if isinstance(item.geometry, LineString):
-        return item.geometry.buffer(max(item.width, 0.1) / 2)
+        return item.geometry.buffer(0.05)
     return item.geometry
 
 
@@ -148,7 +153,7 @@ def _thread_json(hex_color: str, palette) -> dict[str, str]:
     return {"brother_number": thread.brother_number, "name": thread.name, "hex": thread.hex}
 
 
-def _write_debug(debug: Path, frame: Frame, drawing, reduced, outline, attributed, border) -> None:
+def _write_debug(debug: Path, frame: Frame, drawing, reduced, shape, attributed, border) -> None:
     def doc(name: str, body: list[str]) -> None:
         (debug / name).write_text(svg_document(frame.width, frame.height, body), encoding="utf-8")
 
@@ -159,14 +164,17 @@ def _write_debug(debug: Path, frame: Frame, drawing, reduced, outline, attribute
     def line(geom, color: str, width: float) -> str:
         return f'<path d="{geom_to_path_d(frame.place(geom))}" fill="none" stroke="{color}" stroke-width="{width:.3f}" stroke-linejoin="round"/>'
 
+    def satin(s, color: str) -> str:
+        return fill(Polygon(s.rails[0] + s.rails[1][::-1]).buffer(0), color)
+
     doc("01_normalized.svg", [fill(e.geometry, e.color) for e in drawing.elements])
     doc("02_reduced.svg", [fill(r.geometry, r.thread.hex) for r in reduced.regions])
-    doc("03_outline.svg", [fill(r.geometry, r.thread.hex) for r in reduced.regions] + [line(outline.exterior, "#e0007a", 0.2)])
+    doc("03_outline.svg", [fill(r.geometry, r.thread.hex) for r in reduced.regions] + [line(shape.exterior, "#e0007a", 0.2)])
     doc("04_attributes.svg",
         [fill(f.geometry, f.thread.hex, f' opacity="0.8" data-angle="{f.angle:g}"') for f in attributed.fills]
-        + [line(s.line, s.thread.hex, s.width) for s in attributed.satins]
-        + [line(s.line, "#e0007a", 0.08) for s in attributed.satins])
-    body = [fill(f.geometry, f.thread.hex) for f in attributed.fills] + [line(s.line, s.thread.hex, s.width) for s in attributed.satins]
+        + [satin(s.satin, s.thread.hex) for s in attributed.satins]
+        + [line(s.satin.centre, "#e0007a", 0.06) for s in attributed.satins])
+    body = [fill(f.geometry, f.thread.hex) for f in attributed.fills] + [satin(s.satin, s.thread.hex) for s in attributed.satins]
     if border is not None:
-        body.append(line(border.centerline, "#000000", border.width))
+        body.append(satin(border.satin, "#000000"))
     doc("05_border.svg", body)
