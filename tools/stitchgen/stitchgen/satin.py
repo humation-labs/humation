@@ -67,19 +67,30 @@ def dot_satin(shape: BaseGeometry, min_width: float) -> Satin | None:
     parts = polygons(shape)
     if not parts or axes is None:
         return None
-    (ux, uy), long_len, short_len = axes
-    ring = list(orient(parts[0], 1.0).exterior.coords)[:-1]
+    (ux, uy), long_len, _ = axes
     c = parts[0].centroid
-    proj = [(x - c.x) * ux + (y - c.y) * uy for x, y in ring]
-    i0, i1 = int(np.argmin(proj)), int(np.argmax(proj))
+    return strip_satin(parts[0], (c.x - ux * long_len, c.y - uy * long_len), (c.x + ux * long_len, c.y + uy * long_len))
+
+
+def strip_satin(shape: Polygon, end_a: Point, end_b: Point) -> Satin | None:
+    """Satin whose rails are the shape's own contour, split at the boundary points nearest end_a and end_b.
+    Fits any strip without branches (petal, leaf, stem, a strand of hair), however it curves."""
+    ring = list(orient(shape, 1.0).exterior.segmentize(STEP).coords)[:-1]
+    if len(ring) < 4:
+        return None
+    i0 = min(range(len(ring)), key=lambda i: (math.dist(ring[i], end_a), i))
+    i1 = min(range(len(ring)), key=lambda i: (math.dist(ring[i], end_b), i))
+    if i0 == i1:
+        return None
     n = len(ring)
     forward = [ring[(i0 + k) % n] for k in range((i1 - i0) % n + 1)]
     backward = [ring[(i0 - k) % n] for k in range((i0 - i1) % n + 1)]
-    count = max(5, math.ceil(long_len / (STEP * 0.8)) + 1)
-    a = _resample_count(forward, count)
-    b = _resample_count(backward, count)
-    centre = LineString([(c.x - ux * long_len / 2, c.y - uy * long_len / 2), (c.x + ux * long_len / 2, c.y + uy * long_len / 2)])
-    return Satin((a, b), centre, round(short_len, 3), False)
+    length = max(LineString(forward).length, LineString(backward).length)
+    count = max(5, math.ceil(length / (STEP * 0.8)) + 1)
+    a, b = _resample_count(forward, count), _resample_count(backward, count)
+    centre = LineString([((p[0] + q[0]) / 2, (p[1] + q[1]) / 2) for p, q in zip(a, b)])
+    widths = sorted(math.dist(p, q) for p, q in zip(a, b))
+    return Satin((a, b), centre, round(widths[len(widths) // 2], 3), False)
 
 
 def band_satin(centre: Polygon, width: float) -> Satin:

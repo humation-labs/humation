@@ -13,7 +13,7 @@ open out/standard/compare.png
 ```
 
 ```
-stitchgen input.svg -o out/ [--size 60] [--border outline|satin|none] [--patch felt|stitched|none] [--palette palette.json] [--config config.toml] [--debug]
+stitchgen input.svg -o out/ [--size 60] [--border outline|satin|none] [--patch felt|stitched|none] [--fill-pattern random|regular] [--palette palette.json] [--config config.toml] [--debug]
 ```
 
 Paths are relative to the mounted directory (`/work`). To convert several SVGs, loop over them in the shell.
@@ -97,9 +97,8 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
 
 5. **Stitch attributes** (`attributes.py`, `satin.py`). Splits each region into thick and thin parts with a
    morphological opening of `thin.threshold_mm`.
-   - Thick parts are filled with straight stitches of random length (Ink/Stitch's random stitch length),
-     so no tatami brick pattern shows. Rows follow the motif, taken from the Humation colour slot that painted
-     the part (`[fill.flow]`):
+   - Thick parts are tatami. Rows follow the motif, taken from the Humation colour slot that painted the part
+     (`[fill.flow]`):
 
      | Motif   | Flow    | Rows                                                                                |
      | ------- | ------- | ----------------------------------------------------------------------------------- |
@@ -107,11 +106,18 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
      | skin    | `wrap`  | bowed across the face like latitude lines on a ball (3 mm stitches)                 |
      | clothes | `drape` | hanging vertically with a slight bow (3.5 mm stitches)                              |
 
-     These use Ink/Stitch guided fills with a generated guide line. The change of stitch direction between
-     motifs catches the light differently, which is what gives embroidery its depth. Other parts (items,
-     fixed colours) use straight rows, alternating 45°/135° between neighbours. If a guided fill ever fails
-     in Ink/Stitch, the export is retried once with straight rows and a `flow_fallback` warning.
+     These use Ink/Stitch guided fills with a generated guide line. Each motif has its own stitch direction, so
+     each catches the light differently, which gives the embroidery its depth. Other parts (items, fixed
+     colours) use straight rows, alternating 45°/135° between neighbours. If a guided fill ever fails in
+     Ink/Stitch, the export is retried once with straight rows and a `flow_fallback` warning.
 
+   - `--fill-pattern` sets the needle points:
+     - `random` (default) randomises stitch lengths, so no needle-point pattern shows.
+     - `regular` is classic tatami: needle points step along and repeat every 4 rows.
+   - Parts of a fill narrower than `fill.satin_max_width_mm` (6 mm) are satin instead of tatami, the usual
+     digitising rule. This covers petals, leaves, stems, strands of hair and collars.
+     - A part that branches nowhere is one satin between its own two sides.
+     - Tapering edges and rounded-off corners that meet the wide area along a long seam stay tatami.
    - Thin parts of the line-art thread (black) are skeletonised into centrelines. Each becomes a satin column
      made of two rails. Each rail is offset by the line's own local half-width, with a minimum width of 1 mm.
      Satin width therefore follows the drawn line, ends round off like the brush stroke, and the inner rail is

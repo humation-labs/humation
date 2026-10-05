@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 import tempfile
@@ -51,6 +52,8 @@ def _parser() -> argparse.ArgumentParser:
                    help="outline: thin outer line (default); satin: older patch style with a wide outer edge")
     p.add_argument("--patch", choices=["felt", "stitched", "none"], default="felt",
                    help="felt: embroider on felt and cut along cutline.svg (default); stitched: background + satin edge; none: direct embroidery")
+    p.add_argument("--fill-pattern", choices=["random", "regular"], default=None,
+                   help="random: random stitch lengths (default from config.toml); regular: classic tatami stagger")
     p.add_argument("--palette", type=Path, default=None)
     p.add_argument("--config", type=Path, default=None)
     p.add_argument("--debug", action="store_true", help="keep intermediate SVGs in out/debug/")
@@ -61,6 +64,8 @@ def run(args: argparse.Namespace) -> list[Warning]:
     if not args.input.is_file():
         raise StitchgenError(f"input not found: {args.input}")
     cfg = load_config(args.config)
+    if args.fill_pattern:
+        cfg = dataclasses.replace(cfg, fill=dataclasses.replace(cfg.fill, pattern=args.fill_pattern))
     palette = load_palette(args.palette)
     size = args.size or cfg.size.default_mm
     out: Path = args.out
@@ -156,6 +161,7 @@ def run(args: argparse.Namespace) -> list[Warning]:
         "size_mm": {"width": summary.width_mm, "height": summary.height_mm},
         "avatar_size_mm": {"width": drawing.width_mm, "height": drawing.height_mm},
         "border": args.border,
+        "fill_pattern": cfg.fill.pattern,
         "patch": args.patch if args.border != "satin" else "satin-edge",
         **({"cut_size_mm": {"width": round(cut.bounds[2] - cut.bounds[0], 1), "height": round(cut.bounds[3] - cut.bounds[1], 1)}} if cut is not None else {}),
         "warnings": [w.to_json() for w in warnings],

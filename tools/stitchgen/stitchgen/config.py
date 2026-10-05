@@ -25,10 +25,13 @@ class DetailConfig:
 
 @dataclass(frozen=True)
 class FillConfig:
+    pattern: str
+    satin_max_width_mm: float
     angles: tuple[float, ...]
     row_spacing_mm: float
     max_stitch_length_mm: float
     random_jitter_percent: float
+    staggers: int
     underlay: bool
     overlap_mm: float
     flow: dict[str, str]
@@ -139,10 +142,13 @@ def load_config(path: str | Path | None = None) -> Config:
         colors=ColorsConfig(max=int(raw["colors"]["max"]), roles={k: str(v) for k, v in raw["colors"].get("roles", {}).items()}),
         detail=DetailConfig(min_mm=float(raw["detail"]["min_mm"])),
         fill=FillConfig(
+            pattern=str(raw["fill"]["pattern"]),
+            satin_max_width_mm=float(raw["fill"]["satin_max_width_mm"]),
             angles=tuple(float(x) for x in raw["fill"]["angles"]),
             row_spacing_mm=float(raw["fill"]["row_spacing_mm"]),
             max_stitch_length_mm=float(raw["fill"]["max_stitch_length_mm"]),
             random_jitter_percent=float(raw["fill"]["random_jitter_percent"]),
+            staggers=int(raw["fill"]["staggers"]),
             underlay=bool(raw["fill"]["underlay"]),
             overlap_mm=float(raw["fill"]["overlap_mm"]),
             flow={k: str(v) for k, v in raw["fill"].get("flow", {}).items()},

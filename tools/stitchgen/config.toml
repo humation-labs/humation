@@ -13,11 +13,14 @@ skin = "001"               # skin is stitched in White
 min_mm = 1.0               # parts smaller than this in both dimensions are dropped (warning)
 
 [fill]
-# Fills are straight stitches of random length (no tatami brick pattern) laid in rows that follow the motif.
+# Wide areas are tatami laid in rows that follow the motif; anything narrower than satin_max_width_mm is satin.
+pattern = "random"         # random: random stitch lengths, no needle-point pattern; regular: classic tatami stagger
+satin_max_width_mm = 6.0   # narrower parts of a fill (petals, leaves, stems, strands) are satin instead of tatami
 angles = [45.0, 135.0]     # straight rows for parts without a flow, alternated between touching fills
 row_spacing_mm = 0.28
 max_stitch_length_mm = 4.0
-random_jitter_percent = 15 # stitch length variation: hides needle-point patterns, keeps the surface even
+random_jitter_percent = 15 # pattern = random: stitch length variation
+staggers = 4               # pattern = regular: rows repeat their needle points every this many rows
 underlay = true
 overlap_mm = 0.3           # fills grow under neighbouring satins to avoid gaps
 

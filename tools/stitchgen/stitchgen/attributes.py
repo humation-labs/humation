@@ -17,7 +17,7 @@ from .config import Config, PaletteColor
 from .geometry import clean, polygons, union
 from .flow import guide_line
 from .report import Warning
-from .satin import Satin, dot_satin, line_satin, rect_axes
+from .satin import Satin, dot_satin, line_satin, rect_axes, strip_satin
 
 RES = 20.0  # raster resolution for centerlines, px per mm
 
@@ -77,8 +77,11 @@ def assign_attributes(reduced: ReducedDrawing, cfg: Config, line_art_hex: str | 
         for part in polygons(union([thick, *absorbed])):
             if _too_small(part, cfg.detail.min_mm):
                 dropped += 1
-            else:
-                fills.append(FillPart(region.thread, part))
+                continue
+            wide, narrow = _split_narrow(part, cfg.fill.satin_max_width_mm)
+            fills.extend(FillPart(region.thread, p) for p in wide)
+            satins.extend(SatinLine(region.thread, satin)
+                          for satin in centerlines(narrow, cfg, cfg.thin.satin_min_mm, cfg.fill.satin_max_width_mm, width_from=part))
         for satin in centerlines(thin_parts, cfg):
             if satin.width < cfg.detail.min_mm:
                 widened += 1
@@ -116,6 +119,30 @@ def _assign_flows(fills: list[FillPart], roles: dict[str, BaseGeometry], flows: 
             fill.flow = flows[best]
 
 
+def _split_narrow(part: Polygon, max_width: float) -> tuple[list[Polygon], list[Polygon]]:
+    """Digitising rule of thumb: tatami for wide areas, satin for anything narrower than max_width.
+    Returns (wide parts for tatami, narrow parts for satin)."""
+    r = max_width / 2
+    wide = clean(part.buffer(-r, quad_segs=8).buffer(r, quad_segs=8).intersection(part))
+    if wide.is_empty:
+        return [], [part]
+    narrow, absorbed = [], []
+    for piece in polygons(clean(part.difference(wide))):
+        # Rounded-off corners and tapering edges of the wide area are not shapes of their own: they meet it
+        # along a long seam (or are tiny) and stay tatami. Petals, stems and strands meet it at a short neck.
+        seam = piece.boundary.intersection(wide.buffer(0.05)).length
+        if piece.area < r * r or seam > max_width or _short(piece, max_width) and piece.distance(wide) < 0.05:
+            absorbed.append(piece)
+        else:
+            narrow.append(piece)
+    return polygons(union([wide, *absorbed])), narrow
+
+
+def _short(piece: Polygon, max_width: float) -> bool:
+    axes = rect_axes(piece)
+    return axes is None or axes[1] < max_width
+
+
 def _too_small(part: Polygon, min_mm: float) -> bool:
     minx, miny, maxx, maxy = part.bounds
     return maxx - minx < min_mm and maxy - miny < min_mm
@@ -135,31 +162,42 @@ def _assign_angles(fills: list[FillPart], angles: tuple[float, ...], reach: floa
 # --- centerlines -------------------------------------------------------------------------------
 
 
-def centerlines(parts: list[Polygon], cfg: Config) -> list[Satin]:
-    """Satins for thin polygons: compact marks keep their own contour, lines follow their skeleton."""
+def centerlines(parts: list[Polygon], cfg: Config, min_width: float | None = None, max_width: float | None = None,
+                width_from: BaseGeometry | None = None) -> list[Satin]:
+    """Satins for thin polygons: compact marks keep their own contour, lines follow their skeleton.
+    width_from: measure the satin width against this larger shape (a narrow part cut off a fill keeps its real
+    width where it joins the fill, instead of pinching to a point at the cut)."""
     if not parts:
         return []
-    min_half, max_half = cfg.thin.satin_min_mm / 2, cfg.thin.satin_max_mm / 2
+    min_width = cfg.thin.satin_min_mm if min_width is None else min_width
+    max_width = cfg.thin.satin_max_mm if max_width is None else max_width
+    min_half, max_half = min_width / 2, max_width / 2
     out: list[Satin] = []
     lines: list[Polygon] = []
     for part in parts:
         axes = rect_axes(part)
-        if axes is not None and axes[1] <= 2 * cfg.thin.satin_max_mm:
-            dot = dot_satin(part, cfg.thin.satin_min_mm)
+        if axes is not None and axes[1] <= 2 * max_width:
+            dot = dot_satin(part, min_width)
             if dot is not None:
                 out.append(dot)
+                continue
+        if width_from is not None and not part.interiors:
+            strip = _unbranched_strip(part, cfg)
+            if strip is not None:
+                out.append(strip)
                 continue
         lines.append(part)
     if not lines:
         return out
 
     geom = union(lines)
-    minx, miny, maxx, maxy = geom.bounds
+    measure = union([geom, width_from]) if width_from is not None else geom
+    minx, miny, maxx, maxy = measure.bounds
     ox, oy = minx - 0.5, miny - 0.5
     w = int(math.ceil((maxx - ox + 0.5) * RES))
     h = int(math.ceil((maxy - oy + 0.5) * RES))
     mask = _rasterize(geom, ox, oy, w, h)
-    dist = distance_transform_edt(mask) / RES
+    dist = distance_transform_edt(_rasterize(measure, ox, oy, w, h) if width_from is not None else mask) / RES
     skel = skeletonize(mask.astype(bool))
     pixels = {(int(r), int(c)) for r, c in zip(*np.nonzero(skel))}
     pixels = _prune(pixels, cfg.thin.spur_min_mm * RES)
@@ -181,14 +219,28 @@ def centerlines(parts: list[Polygon], cfg: Config) -> list[Satin]:
         width = 2 * min(max(median_half, min_half), max_half)
         # Loops too small to have an inside, and stubs barely longer than wide, are stitched as one mark.
         if closed and Polygon(line.coords).buffer(-width / 2).is_empty:
-            satin = dot_satin(Polygon(line.coords).buffer(median_half), cfg.thin.satin_min_mm)
+            satin = dot_satin(Polygon(line.coords).buffer(median_half), min_width)
         elif not closed and line.length < 1.5 * width:
-            satin = dot_satin(line.buffer(median_half), cfg.thin.satin_min_mm)
+            satin = dot_satin(line.buffer(median_half), min_width)
         else:
             satin = line_satin(line, half_at, closed, min_half, max_half)
         if satin is not None:
             out.append(satin)
     return out
+
+
+def _unbranched_strip(part: Polygon, cfg: Config) -> Satin | None:
+    """A narrow fill part whose skeleton is one open path is sewn as one satin between its own two sides."""
+    minx, miny, maxx, maxy = part.bounds
+    ox, oy = minx - 0.5, miny - 0.5
+    mask = _rasterize(part, ox, oy, int(math.ceil((maxx - ox + 0.5) * RES)), int(math.ceil((maxy - oy + 0.5) * RES)))
+    pixels = _prune({(int(r), int(c)) for r, c in zip(*np.nonzero(skeletonize(mask.astype(bool))))}, cfg.thin.spur_min_mm * RES)
+    chains = _chain(_trace(pixels))
+    if len(chains) != 1 or chains[0][1]:
+        return None
+    path = chains[0][0]
+    ends = [(ox + (c + 0.5) / RES, oy + (r + 0.5) / RES) for r, c in (path[0], path[-1])]
+    return strip_satin(part, ends[0], ends[1])
 
 
 def _smooth(line: LineString, closed: bool, iterations: int = 2) -> LineString:

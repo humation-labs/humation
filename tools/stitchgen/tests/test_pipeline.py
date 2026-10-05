@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 import pytest
-from shapely.geometry import box
+from shapely.geometry import Polygon, box
 
 from stitchgen.attributes import assign_attributes
 from stitchgen.colors import ColorRegion, ReducedDrawing, ciede2000, nearest, reduce_colors
@@ -334,3 +334,41 @@ def test_felt_cut_line_is_a_smooth_margin_round_the_artwork():
     assert cut.contains(art.buffer(CFG.patch.cut_margin_mm - 0.05))
     assert cut.exterior.distance(art) == pytest.approx(CFG.patch.cut_margin_mm, abs=0.05)
     assert not cut.interiors
+
+
+# --- satin for narrow parts of fills -----------------------------------------------------------------
+
+
+def test_narrow_protrusion_becomes_satin_but_tapering_edge_stays_tatami():
+    from stitchgen.attributes import _split_narrow
+
+    body = box(0, 0, 20, 20)
+    stem = box(9, 20, 12, 30)  # 3 mm wide, 10 mm long: meets the body at a 3 mm neck
+    wide, narrow = _split_narrow(body.union(stem), CFG.fill.satin_max_width_mm)
+    assert len(narrow) == 1 and narrow[0].intersection(stem).area > 0.9 * stem.area
+    taper = Polygon([(0, 0), (20, 0), (20, 10), (0, 12), (0, 0)]).union(Polygon([(0, 12), (20, 10), (20, 14)]))
+    wide, narrow = _split_narrow(taper, CFG.fill.satin_max_width_mm)
+    assert not narrow  # a sliver along the side of a wide area is part of it
+
+
+def test_leaf_shaped_fill_is_one_satin_between_its_own_sides():
+    from shapely.geometry import Point
+
+    leaf = Point(0, 0).buffer(1, quad_segs=16)
+    leaf = Polygon([(x * 6, y * 2) for x, y in leaf.exterior.coords])  # 12 x 4 mm lens
+    reduced = ReducedDrawing([ColorRegion(PALETTE[9], leaf)], [])
+    attributed = assign_attributes(reduced, CFG)
+    assert not attributed.fills and len(attributed.satins) == 1
+    satin = attributed.satins[0].satin
+    rungs = [((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5 for (ax, ay), (bx, by) in zip(*satin.rails)]
+    assert max(rungs) == pytest.approx(4.0, abs=0.2) and rungs[0] < 0.5 and rungs[-1] < 0.5  # pointed ends
+    assert satin.centre.length == pytest.approx(12, abs=1.0)
+
+
+def test_regular_fill_pattern_uses_tatami_stagger():
+    import dataclasses
+
+    cfg = dataclasses.replace(CFG, fill=dataclasses.replace(CFG.fill, pattern="regular"))
+    reduced = ReducedDrawing([ColorRegion(PALETTE[2], box(0, 0, 20, 20))], [])
+    svg = inkstitch_svg(sewing_order(assign_attributes(reduced, cfg), None, BLACK), Frame.around((0, 0, 20, 20)), cfg)
+    assert 'inkstitch:staggers="4"' in svg and "enable_random_stitch_length" not in svg

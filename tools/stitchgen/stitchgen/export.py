@@ -50,11 +50,15 @@ def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config, guided: bool = T
                 "style": f"fill:{item.thread.hex};fill-rule:evenodd;stroke:none",
                 "inkstitch:row_spacing_mm": fmt_coord(cfg.fill.row_spacing_mm),
                 "inkstitch:max_stitch_length_mm": fmt_coord(cfg.fill.max_stitch_length_mm),
-                # Random stitch lengths: straight stitches without the tatami brick pattern.
-                "inkstitch:enable_random_stitch_length": "True",
-                "inkstitch:random_stitch_length_jitter_percent": fmt_coord(cfg.fill.random_jitter_percent),
                 "inkstitch:fill_underlay": str(cfg.fill.underlay),
             }
+            if cfg.fill.pattern == "random":
+                # Random stitch lengths: no needle-point pattern, the surface reads as plain straight stitches.
+                attrs["inkstitch:enable_random_stitch_length"] = "True"
+                attrs["inkstitch:random_stitch_length_jitter_percent"] = fmt_coord(cfg.fill.random_jitter_percent)
+            else:
+                # Classic tatami: needle points shift row by row and repeat every `staggers` rows.
+                attrs["inkstitch:staggers"] = str(cfg.fill.staggers)
             if item.guide is not None and guided:
                 attrs["inkstitch:max_stitch_length_mm"] = fmt_coord(min(cfg.fill.max_stitch_length_mm, STITCH_LENGTH_MM.get(item.flow or "", 99)))
                 attrs["inkstitch:fill_method"] = "guided_fill"
