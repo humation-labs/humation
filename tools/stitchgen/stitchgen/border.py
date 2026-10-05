@@ -42,11 +42,16 @@ class Patch:
 def make_patch(painted: BaseGeometry, shape: Polygon, margin_mm: float, edge_width_mm: float, smooth_mm: float, overlap_mm: float) -> Patch:
     """Sticker-style patch: a smooth contour margin_mm outside the artwork, finished with a satin edge.
     painted: everything the artwork stitches (fills, lines, outer line); the rest inside the edge is background."""
-    r = smooth_mm
-    # Grow past the margin, then close with a large radius so the cut line has no tight notches.
-    body = polygons(clean(shape.buffer(margin_mm + edge_width_mm + r, quad_segs=16).buffer(-r, quad_segs=16)))[0]
-    body = Polygon(body.exterior)
+    body = cut_contour(shape, margin_mm + edge_width_mm, smooth_mm)
     centre = polygons(clean(body.buffer(-edge_width_mm, quad_segs=16).buffer(edge_width_mm / 2, quad_segs=16)))[0]
     inside_edge = body.buffer(-edge_width_mm + overlap_mm, quad_segs=16)  # background tucks under the edge
     background = clean(inside_edge.difference(painted.buffer(-overlap_mm, quad_segs=8)))
     return Patch(edge=band_satin(centre, edge_width_mm), background=background, outline=body)
+
+
+def cut_contour(shape: Polygon, margin_mm: float, smooth_mm: float) -> Polygon:
+    """Smooth contour margin_mm outside the artwork: grow past the margin, then shrink back with a large radius
+    so the line has no tight notches to cut around."""
+    r = smooth_mm
+    body = polygons(clean(shape.buffer(margin_mm + r, quad_segs=16).buffer(-r, quad_segs=16)))[0]
+    return Polygon(body.exterior).simplify(0.02, preserve_topology=True)

@@ -50,13 +50,17 @@ color = "900"              # brother_number of the border / placement thread
 placement_stitch_length_mm = 2.5
 
 [patch]
-# Default output is a patch: the artwork (with its thin outer line) on a background margin, finished with a
-# satin edge for heat cutting. --no-patch gives direct embroidery; --border satin is the older wide-edge patch.
-margin_mm = 2.0            # background between the artwork's outer line and the edge
-edge_width_mm = 2.5        # heat-cut satin edge (2.5-3.0)
-smooth_mm = 3.0            # the cut line closes notches up to about twice this
-background = "001"         # brother_number of the background fill (White, like a die-cut sticker)
-edge = "001"               # brother_number of the edge satin and placement run
+# --patch felt     : (default) embroider on white felt and cut it out along cutline.svg. Felt does not fray and the
+#                    artwork's own outer line finishes the edge, so nothing is stitched around it.
+# --patch stitched : stitched background margin and a satin heat-cut edge (for twill or other fraying fabric).
+# --patch none     : direct embroidery on a garment.
+cut_margin_mm = 1.5        # felt: cut line distance outside the outer line
+felt = "#f7f7f4"           # felt colour for the preview
+margin_mm = 2.0            # stitched: background between the artwork's outer line and the edge
+edge_width_mm = 2.5        # stitched: heat-cut satin edge (2.5-3.0)
+smooth_mm = 3.0            # cut line / edge closes notches up to about twice this
+background = "001"         # stitched: brother_number of the background fill (White)
+edge = "001"               # stitched: brother_number of the edge satin and placement run
 
 [guardrails]
 max_stitches = 15000

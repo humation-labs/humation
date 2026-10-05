@@ -62,6 +62,8 @@ class BorderConfig:
 
 @dataclass(frozen=True)
 class PatchConfig:
+    cut_margin_mm: float
+    felt: str
     margin_mm: float
     edge_width_mm: float
     smooth_mm: float
@@ -164,6 +166,8 @@ def load_config(path: str | Path | None = None) -> Config:
             placement_stitch_length_mm=float(raw["border"]["placement_stitch_length_mm"]),
         ),
         patch=PatchConfig(
+            cut_margin_mm=float(raw["patch"]["cut_margin_mm"]),
+            felt=str(raw["patch"]["felt"]),
             margin_mm=float(raw["patch"]["margin_mm"]),
             edge_width_mm=float(raw["patch"]["edge_width_mm"]),
             smooth_mm=float(raw["patch"]["smooth_mm"]),

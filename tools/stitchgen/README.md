@@ -13,7 +13,7 @@ open out/standard/compare.png
 ```
 
 ```
-stitchgen input.svg -o out/ [--size 60] [--border outline|satin|none] [--no-patch] [--palette palette.json] [--config config.toml] [--debug]
+stitchgen input.svg -o out/ [--size 60] [--border outline|satin|none] [--patch felt|stitched|none] [--palette palette.json] [--config config.toml] [--debug]
 ```
 
 Paths are relative to the mounted directory (`/work`). To convert several SVGs, loop over them in the shell.
@@ -24,6 +24,7 @@ Paths are relative to the mounted directory (`/work`). To convert several SVGs, 
 | `design.dst`  | Tajima DST for outside or multi-needle machines                                                                                                                                                                 |
 | `preview.png` | Stitch simulation (short side 2000 px). Each stitch is drawn as a round, glossy thread that casts a soft shadow on the fabric; its sheen depends on its direction against a top-left light, as with real thread |
 | `compare.png` | Colour-reduced artwork next to the simulation, for checking that the avatar is still recognisable                                                                                                               |
+| `cutline.svg` | Cut line for the felt patch (`--patch felt`): a red hairline path in mm, for scissors, a cutting plotter or a laser                                                                                             |
 | `meta.json`   | Stitch count, thread order, colour changes, estimated time, size, warnings                                                                                                                                      |
 | `debug/`      | Intermediate SVG of every step (`--debug` only). `07_inkstitch.svg` is the file sent to Ink/Stitch                                                                                                              |
 
@@ -34,17 +35,18 @@ Exit codes: `0` success, `1` success with warnings (also listed in `meta.json`),
 ```json
 {
   "input": "standard.svg",
-  "stitch_count": 10886,
-  "color_changes": 6,
+  "stitch_count": 7343,
+  "color_changes": 5,
   "color_order": [
     { "brother_number": "900", "name": "Black", "hex": "#000000" },
     "..."
   ],
-  "estimated_minutes": 18.1,
-  "size_mm": { "width": 42.4, "height": 69.2 },
+  "estimated_minutes": 12.2,
+  "size_mm": { "width": 33.4, "height": 60.2 },
   "avatar_size_mm": { "width": 33.1389, "height": 60.0 },
   "border": "outline",
-  "patch": true,
+  "patch": "felt",
+  "cut_size_mm": { "width": 36.1, "height": 63.0 },
   "warnings": [
     {
       "code": "detail_dropped",
@@ -76,13 +78,17 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
    it instead of adding a second edge.
    - `--border outline` (default). The outer line is sewn like every other line: a 1.1 mm satin entirely inside
      the silhouette. Gaps in the hand-drawn line and the straight crop at the bottom are closed by it.
-   - Patch (default; `--no-patch` gives direct embroidery on a garment). A sticker-style patch is built around
-     the artwork. `[patch]` sets the margin, edge width and colours.
+   - `--patch felt` (default). Embroider on white felt and cut it out along `cutline.svg`, a smooth contour
+     1.5 mm outside the outer line. Felt does not fray, and the artwork's own outer line finishes the edge, so
+     nothing is stitched around the artwork and no placement run is needed. `preview.png` shows the cut-out felt.
+   - `--patch stitched` is for fabric that frays (twill). It builds a sticker-style patch around the artwork.
+     `[patch]` sets the margin, edge width and colours.
      - It has a smooth contour 2 mm outside the outer line.
      - The space between is filled with a White background, which also fills unpainted notches inside the
        silhouette.
      - It is finished with a 2.5 mm White satin edge for heat cutting.
      - A running stitch along the edge is sewn first, to position the fabric.
+   - `--patch none` is direct embroidery on a garment.
    - `--border satin` is the older patch style: a 2.5 mm black satin that covers the drawn outer line, and is
      itself the cut edge.
 
@@ -116,11 +122,11 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
 
 6. **Order** (`order.py`). Sewing order:
    1. placement run
-   2. fills (patch background included), by thread total area (largest first), with each thread's own thin
+   2. fills (stitched-patch background included), by thread total area (largest first), with each thread's own thin
       satins. The placement thread's fills go first.
    3. line-art satins, chained nearest-first
    4. outer line
-   5. patch edge
+   5. stitched-patch edge
 
    Trims are added between same-thread elements that are more than 1 mm apart.
 

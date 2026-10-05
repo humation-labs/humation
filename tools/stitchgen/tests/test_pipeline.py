@@ -232,7 +232,9 @@ def test_end_to_end(tmp_path, name):
     out = tmp_path / "out"
     assert main([str(SAMPLES / f"{name}.svg"), "-o", str(out)]) in (0, 1)
     meta = json.loads((out / "meta.json").read_text())
-    assert meta["border"] == "outline" and meta["patch"]
+    assert meta["border"] == "outline" and meta["patch"] == "felt"
+    assert 'id="cutline"' in (out / "cutline.svg").read_text()
+    assert meta["cut_size_mm"]["height"] > meta["size_mm"]["height"]
     summary = summarize(pyembroidery.read(str(out / "design.pes")))
     assert summary.stitch_count == meta["stitch_count"]
     assert summary.color_changes == meta["color_changes"] == len(meta["color_order"]) - 1
@@ -294,9 +296,10 @@ def test_end_to_end_direct_embroidery(tmp_path):
     from stitchgen.cli import main
 
     out = tmp_path / "out"
-    assert main([str(SAMPLES / "standard.svg"), "-o", str(out), "--no-patch"]) in (0, 1)
+    assert main([str(SAMPLES / "standard.svg"), "-o", str(out), "--patch", "none"]) in (0, 1)
     meta = json.loads((out / "meta.json").read_text())
-    assert meta["border"] == "outline" and not meta["patch"] and meta["size_mm"]["height"] < 61.5
+    assert meta["border"] == "outline" and meta["patch"] == "none" and meta["size_mm"]["height"] < 61.5
+    assert not (out / "cutline.svg").exists()
 
 
 def test_patch_adds_background_margin_and_edge():
@@ -321,3 +324,13 @@ def polygons_of(geom):
     from stitchgen.geometry import polygons
 
     return polygons(geom)
+
+
+def test_felt_cut_line_is_a_smooth_margin_round_the_artwork():
+    from stitchgen.border import cut_contour
+
+    art = box(0, 0, 20, 30).union(box(9, 30, 11, 34))  # a 2 mm stem on top
+    cut = cut_contour(art, CFG.patch.cut_margin_mm, CFG.patch.smooth_mm)
+    assert cut.contains(art.buffer(CFG.patch.cut_margin_mm - 0.05))
+    assert cut.exterior.distance(art) == pytest.approx(CFG.patch.cut_margin_mm, abs=0.05)
+    assert not cut.interiors

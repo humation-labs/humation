@@ -8,6 +8,8 @@ import numpy as np
 import pyembroidery
 from PIL import Image, ImageDraw, ImageFilter
 
+from shapely.geometry import Polygon
+
 from .colors import ColorRegion
 from .export import Frame
 from .geometry import polygons
@@ -17,9 +19,11 @@ THREAD_MM = 0.42  # visual width of a laid 40 wt thread
 SUPERSAMPLE = 2
 
 
-def render_preview(pattern: pyembroidery.EmbPattern, frame: Frame, anchor: tuple[float, float], path: Path, min_px: int = 2000) -> Image.Image:
+def render_preview(pattern: pyembroidery.EmbPattern, frame: Frame, anchor: tuple[float, float], path: Path, min_px: int = 2000,
+                   felt: tuple[Polygon, str] | None = None) -> Image.Image:
     """Render the stitches as real thread: round, glossy strands that cast a soft shadow on the fabric.
-    anchor = document position (mm) of the design's top-left bound."""
+    anchor = document position (mm) of the design's top-left bound. felt = (cut shape in document mm, colour):
+    show the patch cut out of felt, lying on a table."""
     final = min_px / min(frame.width, frame.height)  # px per mm; the short side gets min_px
     scale = final * SUPERSAMPLE
     size = (round(frame.width * scale), round(frame.height * scale))
@@ -45,6 +49,8 @@ def render_preview(pattern: pyembroidery.EmbPattern, frame: Frame, anchor: tuple
 
     width = max(3, round(THREAD_MM * scale))
     image = _fabric(size)
+    if felt is not None:
+        image = _felt_patch(image, felt[0], _rgb(felt[1]), scale)
 
     # Soft shadow: thread stands proud of the fabric, light comes from the top left.
     shadow = Image.new("L", size, 0)
@@ -69,6 +75,22 @@ def render_preview(pattern: pyembroidery.EmbPattern, frame: Frame, anchor: tuple
     image = image.resize((round(frame.width * final), round(frame.height * final)), Image.LANCZOS)
     image.save(path, optimize=False)
     return image
+
+
+def _felt_patch(table: Image.Image, cut: Polygon, color: tuple[int, int, int], scale: float) -> Image.Image:
+    """A cut-out piece of felt (fuzzy, slightly raised) on a darker table surface."""
+    size = table.size
+    table = Image.fromarray((np.asarray(table, dtype=np.float32) * np.array([0.78, 0.77, 0.75])).astype(np.uint8))
+    mask = Image.new("L", size, 0)
+    ImageDraw.Draw(mask).polygon([(x * scale, y * scale) for x, y in cut.exterior.coords], fill=255)
+    shadow = mask.filter(ImageFilter.GaussianBlur(0.5 * scale)).transform(size, Image.AFFINE, (1, 0, -0.25 * scale, 0, 1, -0.35 * scale))
+    table = Image.composite(Image.new("RGB", size, (90, 88, 84)), table, shadow.point(lambda v: v * 0.5))
+    rng = np.random.default_rng(1)
+    fuzz = rng.normal(0, 5.0, (size[1] // 2 + 1, size[0] // 2 + 1))
+    fuzz_img = Image.fromarray(np.clip(128 + fuzz, 0, 255).astype(np.uint8)).resize(size, Image.BILINEAR).filter(ImageFilter.GaussianBlur(1))
+    felt = np.asarray(Image.new("RGB", size, color), dtype=np.int16) + (np.asarray(fuzz_img, dtype=np.int16)[..., None] - 128)
+    felt_img = Image.fromarray(np.clip(felt, 0, 255).astype(np.uint8))
+    return Image.composite(felt_img, table, mask.filter(ImageFilter.GaussianBlur(0.06 * scale)))
 
 
 def _fabric(size: tuple[int, int]) -> Image.Image:

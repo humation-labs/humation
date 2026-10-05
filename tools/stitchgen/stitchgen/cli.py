@@ -12,7 +12,7 @@ from pathlib import Path
 from shapely.geometry import LineString, Polygon
 
 from .attributes import FillPart, assign_attributes
-from .border import make_border, make_patch
+from .border import cut_contour, make_border, make_patch
 from .colors import ColorRegion, ReducedDrawing, reduce_colors
 from .config import load_config, load_palette
 from .export import Frame, inkstitch_svg, read_back, run_inkstitch, summarize, thread_for
@@ -49,7 +49,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--size", type=float, default=None, help="avatar size in mm (longest side), default from config.toml")
     p.add_argument("--border", choices=["outline", "satin", "none"], default="outline",
                    help="outline: thin outer line (default); satin: older patch style with a wide outer edge")
-    p.add_argument("--no-patch", action="store_true", help="direct embroidery: no background margin or cut edge")
+    p.add_argument("--patch", choices=["felt", "stitched", "none"], default="felt",
+                   help="felt: embroider on felt and cut along cutline.svg (default); stitched: background + satin edge; none: direct embroidery")
     p.add_argument("--palette", type=Path, default=None)
     p.add_argument("--config", type=Path, default=None)
     p.add_argument("--debug", action="store_true", help="keep intermediate SVGs in out/debug/")
@@ -94,8 +95,10 @@ def run(args: argparse.Namespace) -> list[Warning]:
     attributed = assign_attributes(stitched, cfg, line_art_hex=border_thread.hex, canvas=shape)
     warnings += attributed.warnings
     # 5b. patch: background margin and heat-cut edge around the artwork (the satin border already is one)
-    patch = patch_thread = None
-    if not args.no_patch and args.border != "satin":
+    patch = patch_thread = cut = None
+    if args.patch == "felt" and args.border != "satin":
+        cut = cut_contour(shape, cfg.patch.cut_margin_mm, cfg.patch.smooth_mm)
+    if args.patch == "stitched" and args.border != "satin":
         threads = {p.brother_number: p for p in palette}
         background_thread, patch_thread = threads.get(cfg.patch.background), threads.get(cfg.patch.edge)
         if background_thread is None or patch_thread is None:
@@ -108,9 +111,10 @@ def run(args: argparse.Namespace) -> list[Warning]:
     # 6. order
     items = sewing_order(attributed, border, border_thread, placement=args.border == "satin", patch=patch, patch_thread=patch_thread)
 
-    frame = Frame.around((patch.outline if patch else border.outline if border else shape).bounds)
+    edge = patch.outline if patch else cut if cut is not None else border.outline if border else shape
+    frame = Frame.around(edge.bounds, margin=3.0 if cut is not None else 1.0)  # room for the felt's shadow
     if debug:
-        _write_debug(debug, frame, drawing, reduced, shape, attributed, border, patch)
+        _write_debug(debug, frame, drawing, reduced, shape, attributed, border, patch, cut)
 
     # 7. export
     try:
@@ -126,7 +130,10 @@ def run(args: argparse.Namespace) -> list[Warning]:
     # Previews
     anchor_geom = union(_footprint(i) for i in items)
     minx, miny, _, _ = frame.place(anchor_geom).bounds
-    preview = render_preview(pattern, frame, (minx, miny), out / "preview.png")
+    if cut is not None:
+        (out / "cutline.svg").write_text(svg_document(frame.width, frame.height, [_cut_path(frame.place(cut))]), encoding="utf-8")
+    felt = (frame.place(cut), cfg.patch.felt) if cut is not None else None
+    preview = render_preview(pattern, frame, (minx, miny), out / "preview.png", felt=felt)
     artwork = render_artwork(reduced.regions, frame, preview.size)
     render_compare(artwork, preview, out / "compare.png")
 
@@ -149,7 +156,8 @@ def run(args: argparse.Namespace) -> list[Warning]:
         "size_mm": {"width": summary.width_mm, "height": summary.height_mm},
         "avatar_size_mm": {"width": drawing.width_mm, "height": drawing.height_mm},
         "border": args.border,
-        "patch": patch is not None,
+        "patch": args.patch if args.border != "satin" else "satin-edge",
+        **({"cut_size_mm": {"width": round(cut.bounds[2] - cut.bounds[0], 1), "height": round(cut.bounds[3] - cut.bounds[1], 1)}} if cut is not None else {}),
         "warnings": [w.to_json() for w in warnings],
     }
     (out / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -163,6 +171,11 @@ def _export(items, frame: Frame, cfg, out: Path, debug: Path | None, guided: boo
         run_inkstitch(svg_path, "pes", out / "design.pes", cfg.export.timeout_s)
         run_inkstitch(svg_path, "dst", out / "design.dst", cfg.export.timeout_s)
     return read_back(out / "design.pes"), read_back(out / "design.dst")
+
+
+def _cut_path(cut) -> str:
+    # Hairline red stroke: the usual convention for "cut here" in plotter and laser software.
+    return f'<path id="cutline" d="{geom_to_path_d(cut.exterior)}" fill="none" stroke="#ff0000" stroke-width="0.1"/>'
 
 
 def _footprint(item):
@@ -180,7 +193,7 @@ def _thread_json(hex_color: str, palette) -> dict[str, str]:
     return {"brother_number": thread.brother_number, "name": thread.name, "hex": thread.hex}
 
 
-def _write_debug(debug: Path, frame: Frame, drawing, reduced, shape, attributed, border, patch=None) -> None:
+def _write_debug(debug: Path, frame: Frame, drawing, reduced, shape, attributed, border, patch=None, cut=None) -> None:
     def doc(name: str, body: list[str]) -> None:
         (debug / name).write_text(svg_document(frame.width, frame.height, body), encoding="utf-8")
 
@@ -206,4 +219,6 @@ def _write_debug(debug: Path, frame: Frame, drawing, reduced, shape, attributed,
         body.append(satin(border.satin, "#000000"))
     if patch is not None:
         body.append(satin(patch.edge, "#9a9a9a"))
+    if cut is not None:
+        body.append(line(cut.exterior, "#ff0000", 0.1))
     doc("05_border.svg", body)
