@@ -1,0 +1,44 @@
+# stitchgen parameters. All lengths are millimetres at the output size.
+
+[size]
+default_mm = 60.0          # avatar bounding box is scaled to fit this square
+
+[colors]
+max = 6                    # target 4-6 thread colours after palette mapping
+
+[detail]
+min_mm = 1.0               # parts smaller than this in both dimensions are dropped (warning)
+
+[fill]
+angles = [45.0, 135.0]     # alternated between touching fill regions
+row_spacing_mm = 0.25
+max_stitch_length_mm = 3.0
+underlay = true
+overlap_mm = 0.3           # fills grow under neighbouring satins to avoid gaps
+
+[thin]
+threshold_mm = 2.5         # regions narrower than this become satin lines
+satin_min_mm = 1.5
+satin_max_mm = 2.5
+zigzag_spacing_mm = 0.4
+spur_min_mm = 1.0          # skeleton branches shorter than this are pruned
+simplify_mm = 0.1
+
+[outline]
+concavity_fill_mm = 2.5    # notches narrower than this are closed
+
+[border]
+offset_mm = 2.5            # patch edge distance from the avatar silhouette
+width_mm = 3.0             # satin width, 2.5-3.0
+zigzag_spacing_mm = 0.38
+color = "900"              # brother_number of the border / placement thread
+placement_stitch_length_mm = 2.5
+
+[guardrails]
+max_stitches = 15000
+max_color_changes = 8
+max_dropped_ratio = 0.10
+
+[export]
+timeout_s = 180
+stitches_per_minute = 600  # home machine speed for estimated_minutes

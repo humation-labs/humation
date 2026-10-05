@@ -1,0 +1,16 @@
+{
+  "name": "humation-patch-10",
+  "description": "Fixed 10-colour Brother embroidery thread palette. hex values are the exact Brother PEC colours so the PES writer keeps them unchanged; brother_number is the Brother Embroidery Thread catalogue number.",
+  "colors": [
+    { "brother_number": "900", "name": "Black", "hex": "#000000" },
+    { "brother_number": "001", "name": "White", "hex": "#f0f0f0" },
+    { "brother_number": "817", "name": "Gray", "hex": "#878787" },
+    { "brother_number": "843", "name": "Beige", "hex": "#efe3b9" },
+    { "brother_number": "124", "name": "Flesh Pink", "hex": "#fdd9de" },
+    { "brother_number": "323", "name": "Light Brown", "hex": "#b27624" },
+    { "brother_number": "058", "name": "Dark Brown", "hex": "#2a1301" },
+    { "brother_number": "800", "name": "Red", "hex": "#ed171f" },
+    { "brother_number": "405", "name": "Blue", "hex": "#0a55a3" },
+    { "brother_number": "509", "name": "Leaf Green", "hex": "#66ba49" }
+  ]
+}

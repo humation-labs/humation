@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "stitchgen"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "lxml",
+    "svgpathtools",
+    "shapely>=2",
+    "numpy",
+    "scikit-image",
+    "scipy",
+    "pyembroidery",
+    "Pillow",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+stitchgen = "stitchgen.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["stitchgen"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "inkstitch: tests that require the Ink/Stitch binary",
+]
