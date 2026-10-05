@@ -15,6 +15,7 @@ from skimage.morphology import skeletonize
 from .colors import ReducedDrawing
 from .config import Config, PaletteColor
 from .geometry import clean, polygons, union
+from .flow import guide_line
 from .report import Warning
 from .satin import Satin, dot_satin, line_satin, rect_axes
 
@@ -28,6 +29,10 @@ class FillPart:
     thread: PaletteColor
     geometry: Polygon
     angle: float = 0.0
+    role: str | None = None
+    guide: LineString | None = None  # rows follow this curve (guided fill); None = straight rows at angle
+    guide_strategy: int = 0
+    flow: str | None = None
 
 
 @dataclass
@@ -84,6 +89,7 @@ def assign_attributes(reduced: ReducedDrawing, cfg: Config, line_art_hex: str | 
         for fill in fills:
             grown = clean(fill.geometry.buffer(cfg.fill.overlap_mm, quad_segs=8).intersection(silhouette))
             fill.geometry = polygons(grown)[0] if polygons(grown) else fill.geometry
+    _assign_flows(fills, reduced.roles, cfg.fill.flow)
 
     warnings = []
     if dropped:
@@ -91,6 +97,23 @@ def assign_attributes(reduced: ReducedDrawing, cfg: Config, line_art_hex: str | 
     if widened:
         warnings.append(Warning("detail_widened", f"{widened} line(s) narrower than {cfg.detail.min_mm} mm were widened to satin ≥ {cfg.thin.satin_min_mm} mm"))
     return Attributed(fills, satins, dropped, warnings)
+
+
+def _assign_flows(fills: list[FillPart], roles: dict[str, BaseGeometry], flows: dict[str, str]) -> None:
+    """Tag each fill with the Humation slot covering most of it and give it that motif's guide line."""
+    for fill in fills:
+        best, best_area = None, 0.0
+        for role, area in roles.items():
+            overlap = fill.geometry.intersection(area).area
+            if overlap > best_area:
+                best, best_area = role, overlap
+        if best is None or best_area < 0.5 * fill.geometry.area:
+            continue
+        fill.role = best
+        guide = guide_line(flows[best], fill.geometry, roles[best].bounds) if best in flows else None
+        if guide is not None:
+            fill.guide, fill.guide_strategy = guide
+            fill.flow = flows[best]
 
 
 def _too_small(part: Polygon, min_mm: float) -> bool:

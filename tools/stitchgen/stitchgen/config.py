@@ -15,6 +15,7 @@ class SizeConfig:
 @dataclass(frozen=True)
 class ColorsConfig:
     max: int
+    roles: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -27,8 +28,10 @@ class FillConfig:
     angles: tuple[float, ...]
     row_spacing_mm: float
     max_stitch_length_mm: float
+    random_jitter_percent: float
     underlay: bool
     overlap_mm: float
+    flow: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -119,14 +122,16 @@ def load_config(path: str | Path | None = None) -> Config:
         raw: dict[str, Any] = tomllib.load(fh)
     return Config(
         size=SizeConfig(default_mm=float(raw["size"]["default_mm"])),
-        colors=ColorsConfig(max=int(raw["colors"]["max"])),
+        colors=ColorsConfig(max=int(raw["colors"]["max"]), roles={k: str(v) for k, v in raw["colors"].get("roles", {}).items()}),
         detail=DetailConfig(min_mm=float(raw["detail"]["min_mm"])),
         fill=FillConfig(
             angles=tuple(float(x) for x in raw["fill"]["angles"]),
             row_spacing_mm=float(raw["fill"]["row_spacing_mm"]),
             max_stitch_length_mm=float(raw["fill"]["max_stitch_length_mm"]),
+            random_jitter_percent=float(raw["fill"]["random_jitter_percent"]),
             underlay=bool(raw["fill"]["underlay"]),
             overlap_mm=float(raw["fill"]["overlap_mm"]),
+            flow={k: str(v) for k, v in raw["fill"].get("flow", {}).items()},
         ),
         thin=ThinConfig(
             threshold_mm=float(raw["thin"]["threshold_mm"]),

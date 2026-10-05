@@ -39,6 +39,7 @@ class Element:
     source_id: str
     color: str  # "#rrggbb"
     geometry: BaseGeometry  # visible region in output millimetres
+    role: str | None = None  # Humation colour slot the paint came from (hair, skin, clothes, bottom, stroke)
 
 
 @dataclass
@@ -55,6 +56,7 @@ class _Raw:
     source_id: str
     color: str
     geometry: BaseGeometry  # in SVG user units
+    role: str | None = None
 
 
 def normalize(svg_path: str | Path, size_mm: float) -> NormalizedDrawing:
@@ -73,7 +75,7 @@ def normalize(svg_path: str | Path, size_mm: float) -> NormalizedDrawing:
     viewport = walker.viewport_polygon()
     if viewport is not None:
         # Humation draws whole bodies and lets the crop viewBox hide the rest; embroider only what is shown.
-        raw = [_Raw(r.source_id, r.color, g) for r in raw if not (g := clean(r.geometry.intersection(viewport), min_area=0)).is_empty]
+        raw = [_Raw(r.source_id, r.color, g, r.role) for r in raw if not (g := clean(r.geometry.intersection(viewport), min_area=0)).is_empty]
     while raw and viewport is not None and _covers(raw[0].geometry, viewport):
         warnings.append(Warning("background_removed", f"dropped full-canvas background ({raw[0].source_id})"))
         raw.pop(0)
@@ -83,7 +85,7 @@ def normalize(svg_path: str | Path, size_mm: float) -> NormalizedDrawing:
     minx, miny, maxx, maxy = union(r.geometry for r in raw).bounds
     scale = size_mm / max(maxx - minx, maxy - miny)
     scaled = [
-        _Raw(r.source_id, r.color, clean(affinity.affine_transform(r.geometry, [scale, 0, 0, scale, -minx * scale, -miny * scale])))
+        _Raw(r.source_id, r.color, clean(affinity.affine_transform(r.geometry, [scale, 0, 0, scale, -minx * scale, -miny * scale])), r.role)
         for r in raw
     ]
 
@@ -93,7 +95,7 @@ def normalize(svg_path: str | Path, size_mm: float) -> NormalizedDrawing:
     for r in reversed(scaled):
         visible = clean(r.geometry.difference(above))
         if not visible.is_empty:
-            elements.append(Element(r.source_id, r.color, visible))
+            elements.append(Element(r.source_id, r.color, visible, r.role))
         above = union([above, r.geometry])
     elements.reverse()
 
@@ -222,21 +224,21 @@ class _Walker:
         fill_opacity = opacity * _float(props.get("fill-opacity"), 1.0)
         if fill and fill_opacity > 0 and tag not in ("line", "polyline"):
             self._opacity_check(fill_opacity)
-            self._add(source_id, fill, _fill_polygon(subpaths, style.get("fill-rule", "nonzero")), clips)
+            self._add(source_id, fill, _fill_polygon(subpaths, style.get("fill-rule", "nonzero")), clips, _role(style.get("fill", "")))
 
         stroke = self._color(style.get("stroke", "none"), style, node, "stroke")
         stroke_opacity = opacity * _float(props.get("stroke-opacity"), 1.0)
         width = _float(style.get("stroke-width"), 1.0) * math.sqrt(abs(np.linalg.det(ctm[:2, :2])))
         if stroke and stroke_opacity > 0 and width > 0:
             self._opacity_check(stroke_opacity)
-            self._add(f"{source_id}:stroke", stroke, _stroke_polygon(subpaths, width, style), clips)
+            self._add(f"{source_id}:stroke", stroke, _stroke_polygon(subpaths, width, style), clips, _role(style.get("stroke", "")))
 
-    def _add(self, source_id: str, color: str, geometry: BaseGeometry, clips: list[BaseGeometry]) -> None:
+    def _add(self, source_id: str, color: str, geometry: BaseGeometry, clips: list[BaseGeometry], role: str | None) -> None:
         for clip in clips:
             geometry = geometry.intersection(clip)
         geometry = clean(geometry, min_area=0)
         if not geometry.is_empty:
-            self.raw.append(_Raw(source_id, color, geometry))
+            self.raw.append(_Raw(source_id, color, geometry, role))
 
     def _opacity_check(self, opacity: float) -> None:
         if opacity < 1:
@@ -304,6 +306,11 @@ class _Walker:
 def _describe(node) -> str:
     tag = _local(node.tag)
     return f"<{tag} id={node.get('id')}>" if node.get("id") else f"<{tag}> at line {node.sourceline}"
+
+
+def _role(paint: str) -> str | None:
+    match = re.search(r"var\(\s*--hm-([\w-]+)", paint)
+    return match.group(1) if match else None
 
 
 def _style_declarations(style: str) -> dict[str, str]:

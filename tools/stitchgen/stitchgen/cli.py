@@ -70,7 +70,7 @@ def run(args: argparse.Namespace) -> list[Warning]:
     drawing = normalize(args.input, size)
     warnings = list(drawing.warnings)
     # 2. reduce colours
-    reduced = reduce_colors(drawing, palette, cfg.colors.max)
+    reduced = reduce_colors(drawing, palette, cfg.colors.max, cfg.colors.roles)
     warnings += reduced.warnings
     # 3. outline
     shape = silhouette([r.geometry for r in reduced.regions], cfg.outline.concavity_fill_mm)
@@ -83,7 +83,7 @@ def run(args: argparse.Namespace) -> list[Warning]:
     stitched = reduced
     if border is not None:
         clipped = [ColorRegion(r.thread, clean(r.geometry.intersection(border.inner))) for r in reduced.regions]
-        stitched = ReducedDrawing([r for r in clipped if not r.geometry.is_empty], [])
+        stitched = ReducedDrawing([r for r in clipped if not r.geometry.is_empty], [], reduced.roles)
     # 4. stitch attributes (the border thread doubles as the line-art thread)
     attributed = assign_attributes(stitched, cfg, line_art_hex=border_thread.hex, canvas=shape)
     warnings += attributed.warnings
@@ -95,13 +95,12 @@ def run(args: argparse.Namespace) -> list[Warning]:
         _write_debug(debug, frame, drawing, reduced, shape, attributed, border)
 
     # 7. export
-    with tempfile.TemporaryDirectory() as tmp:
-        svg_path = (debug or Path(tmp)) / "07_inkstitch.svg"
-        svg_path.write_text(inkstitch_svg(items, frame, cfg), encoding="utf-8")
-        run_inkstitch(svg_path, "pes", out / "design.pes", cfg.export.timeout_s)
-        run_inkstitch(svg_path, "dst", out / "design.dst", cfg.export.timeout_s)
-    pattern = read_back(out / "design.pes")
-    dst = read_back(out / "design.dst")
+    try:
+        pattern, dst = _export(items, frame, cfg, out, debug, guided=True)
+    except StitchgenError as exc:
+        # Guided fills are the only Ink/Stitch feature here that can fail on odd shapes; retry with straight rows.
+        pattern, dst = _export(items, frame, cfg, out, debug, guided=False)
+        warnings.append(Warning("flow_fallback", f"directional fills failed in Ink/Stitch ({exc}); all fills use straight rows"))
     summary = summarize(pattern)
     if summarize(dst).stitch_count == 0:
         raise StitchgenError("design.dst has no stitches")
@@ -136,6 +135,15 @@ def run(args: argparse.Namespace) -> list[Warning]:
     }
     (out / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return warnings
+
+
+def _export(items, frame: Frame, cfg, out: Path, debug: Path | None, guided: bool):
+    with tempfile.TemporaryDirectory() as tmp:
+        svg_path = (debug or Path(tmp)) / "07_inkstitch.svg"
+        svg_path.write_text(inkstitch_svg(items, frame, cfg, guided), encoding="utf-8")
+        run_inkstitch(svg_path, "pes", out / "design.pes", cfg.export.timeout_s)
+        run_inkstitch(svg_path, "dst", out / "design.dst", cfg.export.timeout_s)
+    return read_back(out / "design.pes"), read_back(out / "design.dst")
 
 
 def _footprint(item):

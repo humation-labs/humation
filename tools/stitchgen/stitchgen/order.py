@@ -24,6 +24,9 @@ class Item:
     role: str  # placement | fill | line | border
     angle: float = 0.0
     satin: Satin | None = None
+    guide: LineString | None = None
+    guide_strategy: int = 0
+    flow: str | None = None
 
 
 def sewing_order(attributed: Attributed, border: Border | None, border_thread: PaletteColor | None) -> list[Item]:
@@ -47,7 +50,7 @@ def sewing_order(attributed: Attributed, border: Border | None, border_thread: P
     line_art = final if final in satin_threads else None
     for hex_ in fill_threads:
         group = sorted((f for f in attributed.fills if f.thread.hex == hex_), key=lambda f: (-round(f.geometry.area, 4), f.geometry.bounds))
-        items.extend(Item("fill", f.thread, f.geometry, "fill", angle=f.angle) for f in group)
+        items.extend(Item("fill", f.thread, f.geometry, "fill", angle=f.angle, guide=f.guide, guide_strategy=f.guide_strategy, flow=f.flow) for f in group)
         if hex_ != line_art and hex_ in satin_threads:
             _add_satins(items, attributed.satins, hex_)
     for hex_ in satin_threads:

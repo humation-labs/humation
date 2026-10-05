@@ -18,14 +18,14 @@ stitchgen input.svg -o out/ [--size 60] [--border satin|none] [--palette palette
 
 Paths are relative to the mounted directory (`/work`). To convert several SVGs, loop over them in the shell.
 
-| Output        | Contents                                                                                           |
-| ------------- | -------------------------------------------------------------------------------------------------- |
-| `design.pes`  | Brother embroidery data (primary output)                                                           |
-| `design.dst`  | Tajima DST for outside or multi-needle machines                                                    |
-| `preview.png` | Stitch simulation. The short side is 2000 px, so individual threads are visible                    |
-| `compare.png` | Colour-reduced artwork next to the simulation, for checking that the avatar is still recognisable  |
-| `meta.json`   | Stitch count, thread order, colour changes, estimated time, size, warnings                         |
-| `debug/`      | Intermediate SVG of every step (`--debug` only). `07_inkstitch.svg` is the file sent to Ink/Stitch |
+| Output        | Contents                                                                                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `design.pes`  | Brother embroidery data (primary output)                                                                                                                            |
+| `design.dst`  | Tajima DST for outside or multi-needle machines                                                                                                                     |
+| `preview.png` | Stitch simulation. The short side is 2000 px, so individual threads are visible. Each stitch is shaded by its direction against a top-left light, like thread sheen |
+| `compare.png` | Colour-reduced artwork next to the simulation, for checking that the avatar is still recognisable                                                                   |
+| `meta.json`   | Stitch count, thread order, colour changes, estimated time, size, warnings                                                                                          |
+| `debug/`      | Intermediate SVG of every step (`--debug` only). `07_inkstitch.svg` is the file sent to Ink/Stitch                                                                  |
 
 Exit codes: `0` success, `1` success with warnings (also listed in `meta.json`), `2` conversion failed.
 
@@ -66,8 +66,9 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
    `fill-rule` into polygons. Crops to the SVG viewBox, because Humation draws whole bodies and the crop hides the
    rest. Drops a full-canvas background and scales the avatar to `--size` mm. Each element is then cut down to its
    visible part, so the layering is resolved once and fills never stack.
-2. **Reduce colours** (`colors.py`). Maps every colour to the nearest `palette.json` thread by CIEDE2000. Merges
-   the least-used threads until at most `colors.max` (6) remain. Same-thread neighbours become one region.
+2. **Reduce colours** (`colors.py`). Maps every colour to the nearest `palette.json` thread by CIEDE2000.
+   Colour slots listed in `[colors.roles]` are pinned instead: skin is always White. Merges the least-used threads
+   until at most `colors.max` (6) remain. Same-thread neighbours become one region.
 3. **Outline** (`outline.py`). The silhouette, with notches narrower than 2.5 mm closed, holes dropped and
    floating parts (items) bridged.
 4. **Border** (`border.py`). The avatar already has a drawn outer outline, so the border replaces it instead of
@@ -80,7 +81,21 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
    - A running stitch along the border's centre is sewn first, to position the fabric.
 5. **Stitch attributes** (`attributes.py`, `satin.py`). Splits each region into thick and thin parts with a
    morphological opening of `thin.threshold_mm`.
-   - Thick parts become tatami fills. Fills that touch get alternating angles (45°/135°), with underlay.
+   - Thick parts are filled with straight stitches of random length (Ink/Stitch's random stitch length),
+     so no tatami brick pattern shows. Rows follow the motif, taken from the Humation colour slot that painted
+     the part (`[fill.flow]`):
+
+     | Motif   | Flow    | Rows                                                                                |
+     | ------- | ------- | ----------------------------------------------------------------------------------- |
+     | hair    | `arch`  | concentric arcs round the crown that fall straight down the sides (2.5 mm stitches) |
+     | skin    | `wrap`  | bowed across the face like latitude lines on a ball (3 mm stitches)                 |
+     | clothes | `drape` | hanging vertically with a slight bow (3.5 mm stitches)                              |
+
+     These use Ink/Stitch guided fills with a generated guide line. The change of stitch direction between
+     motifs catches the light differently, which is what gives embroidery its depth. Other parts (items,
+     fixed colours) use straight rows, alternating 45°/135° between neighbours. If a guided fill ever fails
+     in Ink/Stitch, the export is retried once with straight rows and a `flow_fallback` warning.
+
    - Thin parts of the line-art thread (black) are skeletonised into centrelines. Each becomes a satin column
      made of two rails. Each rail is offset by the line's own local half-width, with a minimum width of 1 mm.
      Satin width therefore follows the drawn line, ends round off like the brush stroke, and the inner rail is
@@ -88,6 +103,7 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
    - Compact marks up to 5 mm long, such as eyes and short dashes, use their own contour as rails. The contour is
      split at both ends of the long axis, so a round eye stays round.
    - Thin parts of other threads stay with their own fill.
+
 6. **Order** (`order.py`). Sewing order:
    1. placement run
    2. fills, by thread total area (largest first), with each thread's own thin satins

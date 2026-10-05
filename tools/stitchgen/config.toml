@@ -6,15 +6,26 @@ default_mm = 60.0          # avatar bounding box is scaled to fit this square
 [colors]
 max = 6                    # target 4-6 thread colours after palette mapping
 
+[colors.roles]             # Humation colour slot -> thread brother_number, overriding the nearest colour
+skin = "001"               # skin is stitched in White
+
 [detail]
 min_mm = 1.0               # parts smaller than this in both dimensions are dropped (warning)
 
 [fill]
-angles = [45.0, 135.0]     # alternated between touching fill regions
-row_spacing_mm = 0.25
-max_stitch_length_mm = 3.0
+# Fills are straight stitches of random length (no tatami brick pattern) laid in rows that follow the motif.
+angles = [45.0, 135.0]     # straight rows for parts without a flow, alternated between touching fills
+row_spacing_mm = 0.3
+max_stitch_length_mm = 4.0
+random_jitter_percent = 35 # stitch length variation, hides needle-point patterns like long-and-short stitch
 underlay = true
 overlap_mm = 0.3           # fills grow under neighbouring satins to avoid gaps
+
+[fill.flow]                # Humation colour slot -> row shape
+hair = "arch"              # rows arch over the crown and fall down the sides
+skin = "wrap"              # rows wrap round the face like latitude lines on a ball
+clothes = "drape"          # rows fall vertically with a slight bow, like hanging cloth
+bottom = "drape"
 
 [thin]
 threshold_mm = 2.5         # regions narrower than this become satin lines

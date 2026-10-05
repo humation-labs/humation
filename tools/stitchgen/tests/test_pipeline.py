@@ -241,3 +241,37 @@ def test_end_to_end(tmp_path, name):
     again = tmp_path / "again"
     main([str(SAMPLES / f"{name}.svg"), "-o", str(again)])
     assert (out / "design.pes").read_bytes() == (again / "design.pes").read_bytes()
+
+
+# --- motif flows and role colours ---------------------------------------------------------------
+
+
+def test_skin_role_is_stitched_white():
+    d = normalize(SAMPLES / "standard.svg", 60)
+    reduced = reduce_colors(d, PALETTE, CFG.colors.max, CFG.colors.roles)
+    white = next(r for r in reduced.regions if r.thread.brother_number == "001")
+    assert white.geometry.contains(reduced.roles["skin"].representative_point())
+
+
+def test_arch_guide_runs_through_every_hair_part():
+    from stitchgen.flow import guide_line
+
+    crown = box(10, 0, 30, 40)
+    for part in (box(10, 30, 13, 40), box(18, 0, 22, 3), box(27, 20, 30, 25)):
+        guide, strategy = guide_line("arch", part, crown.bounds)
+        assert guide.intersects(part) and strategy == 1
+
+
+def test_fills_follow_motif_flows_in_inkstitch_svg():
+    d = normalize(SAMPLES / "standard.svg", 60)
+    reduced = reduce_colors(d, PALETTE, CFG.colors.max, CFG.colors.roles)
+    shape = silhouette([r.geometry for r in reduced.regions], 2.5)
+    attributed = assign_attributes(reduced, CFG, line_art_hex=BLACK.hex, canvas=shape)
+    flows = {f.flow for f in attributed.fills}
+    assert {"arch", "wrap", "drape"} <= flows
+    svg = inkstitch_svg(sewing_order(attributed, None, BLACK), Frame.around(shape.bounds), CFG)
+    assert 'inkstitch:fill_method="guided_fill"' in svg
+    assert "marker-start:url(#inkstitch-guide-line-marker)" in svg
+    assert 'inkstitch:enable_random_stitch_length="True"' in svg
+    straight = inkstitch_svg(sewing_order(attributed, None, BLACK), Frame.around(shape.bounds), CFG, guided=False)
+    assert "guided_fill" not in straight and "guide-line" not in straight

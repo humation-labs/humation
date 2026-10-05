@@ -12,6 +12,7 @@ import pyembroidery
 from shapely import affinity
 
 from .config import Config, PaletteColor
+from .flow import STITCH_LENGTH_MM
 from .order import Item
 from .report import StitchgenError
 from .svgio import fmt_coord, geom_to_path_d, svg_document
@@ -38,18 +39,30 @@ class Frame:
         return affinity.translate(geom, self.dx, self.dy)
 
 
-def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config) -> str:
+def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config, guided: bool = True) -> str:
+    """guided=False lays every fill in straight rows (fallback when a guided fill fails in Ink/Stitch)."""
     body = []
     for n, item in enumerate(items, start=1):
+        guide = None
         if item.kind == "fill":
             d = geom_to_path_d(frame.place(item.geometry))
             attrs = {
                 "style": f"fill:{item.thread.hex};fill-rule:evenodd;stroke:none",
-                "inkstitch:angle": fmt_coord(item.angle),
-                "inkstitch:fill_underlay": str(cfg.fill.underlay),
                 "inkstitch:row_spacing_mm": fmt_coord(cfg.fill.row_spacing_mm),
                 "inkstitch:max_stitch_length_mm": fmt_coord(cfg.fill.max_stitch_length_mm),
+                # Random stitch lengths: straight stitches without the tatami brick pattern.
+                "inkstitch:enable_random_stitch_length": "True",
+                "inkstitch:random_stitch_length_jitter_percent": fmt_coord(cfg.fill.random_jitter_percent),
+                "inkstitch:fill_underlay": str(cfg.fill.underlay),
             }
+            if item.guide is not None and guided:
+                attrs["inkstitch:max_stitch_length_mm"] = fmt_coord(min(cfg.fill.max_stitch_length_mm, STITCH_LENGTH_MM.get(item.flow or "", 99)))
+                attrs["inkstitch:fill_method"] = "guided_fill"
+                attrs["inkstitch:guided_fill_strategy"] = str(item.guide_strategy)  # 0 copy, 1 parallel offset
+                guide = geom_to_path_d(frame.place(item.guide))
+            else:
+                attrs["inkstitch:fill_method"] = "tatami_fill"
+                attrs["inkstitch:angle"] = fmt_coord(item.angle)
         elif item.kind == "satin" and item.satin is not None:
             # Two rails with equal node counts: Ink/Stitch uses each node pair as a rung.
             d = " ".join(_polyline_d(rail, frame) for rail in item.satin.rails)
@@ -74,7 +87,12 @@ def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config) -> str:
             # Without a trim Ink/Stitch would sew short travels as visible stitches across other colours.
             attrs["inkstitch:trim_after"] = "True"
         rendered = " ".join(f'{k}="{v}"' for k, v in attrs.items())
-        body.append(f'<path id="{item.role}-{n:03d}" d="{d}" {rendered}/>')
+        path = f'<path id="{item.role}-{n:03d}" d="{d}" {rendered}/>'
+        if guide is not None and guided:
+            # Ink/Stitch finds a guide line as a marked sibling in the same group.
+            marker = "fill:none;stroke:#000000;stroke-width:0.1;marker-start:url(#inkstitch-guide-line-marker)"
+            path = f'<g id="group-{n:03d}">\n  {path}\n  <path id="guide-{n:03d}" d="{guide}" style="{marker}"/>\n</g>'
+        body.append(path)
     return svg_document(frame.width, frame.height, body)
 
 

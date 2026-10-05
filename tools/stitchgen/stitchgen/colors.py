@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from shapely.geometry.base import BaseGeometry
 
@@ -23,36 +23,43 @@ class ColorRegion:
 class ReducedDrawing:
     regions: list[ColorRegion]  # one per thread, largest total area first
     warnings: list[Warning]
+    roles: dict[str, BaseGeometry] = field(default_factory=dict)  # Humation colour slot -> visible area
 
 
-def reduce_colors(drawing: NormalizedDrawing, palette: list[PaletteColor], max_colors: int) -> ReducedDrawing:
+def reduce_colors(drawing: NormalizedDrawing, palette: list[PaletteColor], max_colors: int,
+                  role_threads: dict[str, str] | None = None) -> ReducedDrawing:
+    """role_threads pins a Humation colour slot to a thread by brother_number (e.g. skin -> White)."""
     warnings: list[Warning] = []
     by_hex = {p.hex: p for p in palette}
-    mapping = {c: nearest(c, palette) for c in sorted({e.color for e in drawing.elements})}
+    by_number = {p.brother_number: p for p in palette}
+    pinned = {role: by_number[number] for role, number in (role_threads or {}).items() if number in by_number}
+    nearest_of = {c: nearest(c, palette) for c in sorted({e.color for e in drawing.elements})}
+    threads = [pinned.get(e.role or "") or nearest_of[e.color] for e in drawing.elements]
 
     area: dict[str, float] = {}
-    for element in drawing.elements:
-        thread = mapping[element.color].hex
-        area[thread] = area.get(thread, 0.0) + element.geometry.area
+    for element, thread in zip(drawing.elements, threads):
+        area[thread.hex] = area.get(thread.hex, 0.0) + element.geometry.area
 
     # Fold the least-used thread into its closest surviving neighbour until within the limit.
     while len(area) > max_colors:
-        smallest = min(area, key=lambda h: (area[h], h))
+        candidates = [h for h in area if h not in {t.hex for t in pinned.values()}] or list(area)
+        smallest = min(candidates, key=lambda h: (area[h], h))
         others = [by_hex[h] for h in area if h != smallest]
         target = nearest(smallest, others).hex
         warnings.append(Warning("color_merged", f"{by_hex[smallest].name} merged into {by_hex[target].name} to stay within {max_colors} colours"))
         area[target] += area.pop(smallest)
-        for source, thread in mapping.items():
-            if thread.hex == smallest:
-                mapping[source] = by_hex[target]
+        threads = [by_hex[target] if t.hex == smallest else t for t in threads]
 
     grouped: dict[str, list[BaseGeometry]] = {}
-    for element in drawing.elements:
-        grouped.setdefault(mapping[element.color].hex, []).append(element.geometry)
+    by_role: dict[str, list[BaseGeometry]] = {}
+    for element, thread in zip(drawing.elements, threads):
+        grouped.setdefault(thread.hex, []).append(element.geometry)
+        if element.role:
+            by_role.setdefault(element.role, []).append(element.geometry)
     regions = [ColorRegion(by_hex[h], union(geoms)) for h, geoms in grouped.items()]
     regions = [r for r in regions if polygons(r.geometry)]
     regions.sort(key=lambda r: (-round(r.geometry.area, 4), r.thread.hex))
-    return ReducedDrawing(regions, warnings)
+    return ReducedDrawing(regions, warnings, {role: union(g) for role, g in sorted(by_role.items())})
 
 
 def nearest(hex_color: str, palette: list[PaletteColor]) -> PaletteColor:

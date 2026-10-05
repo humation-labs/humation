@@ -38,8 +38,9 @@ def render_preview(pattern: pyembroidery.EmbPattern, frame: Frame, anchor: tuple
         elif cmd == pyembroidery.STITCH:
             point = px(x, y)
             if prev is not None:
-                draw.line([prev, point], fill=_shade(colors[block], 0.72), width=width)
-                draw.line([prev, point], fill=_shade(colors[block], 1.12), width=core)
+                sheen = _sheen(prev, point)
+                draw.line([prev, point], fill=_shade(colors[block], 0.72 * sheen), width=width)
+                draw.line([prev, point], fill=_shade(colors[block], 1.12 * sheen), width=core)
             prev = point
         else:  # jump, trim, stop, end
             prev = None
@@ -70,6 +71,20 @@ def render_compare(artwork: Image.Image, preview: Image.Image, path: Path) -> No
     canvas.save(path, optimize=False)
 
 
+LIGHT = (-0.7071, -0.7071)  # light from the top left
+
+
+def _sheen(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """A thread is a glossy cylinder: it catches the light most when it lies across the light direction.
+    This is what makes stitch direction read as form in real embroidery."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = (dx * dx + dy * dy) ** 0.5
+    if length == 0:
+        return 1.0
+    along = (dx * LIGHT[0] + dy * LIGHT[1]) / length
+    return 0.8 + 0.32 * (1 - along * along)
+
+
 def _rgb(hex_color: str) -> tuple[int, int, int]:
     h = hex_color.lstrip("#")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
@@ -78,4 +93,4 @@ def _rgb(hex_color: str) -> tuple[int, int, int]:
 def _shade(color: tuple[int, int, int], factor: float) -> tuple[int, int, int]:
     if factor < 1:
         return tuple(round(c * factor) for c in color)
-    return tuple(round(c + (255 - c) * (factor - 1) * 1.5) for c in color)
+    return tuple(min(255, round(c + (255 - c) * (factor - 1) * 1.5)) for c in color)
