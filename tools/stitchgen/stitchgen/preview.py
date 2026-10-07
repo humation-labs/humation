@@ -22,15 +22,17 @@ SUPERSAMPLE = 2
 def render_preview(pattern: pyembroidery.EmbPattern, frame: Frame, anchor: tuple[float, float], path: Path, min_px: int = 2000,
                    felt: tuple[Polygon, str] | None = None) -> Image.Image:
     """Render the stitches as real thread: round, glossy strands that cast a soft shadow on the fabric.
-    anchor = document position (mm) of the design's top-left bound. felt = (cut shape in document mm, colour):
+    anchor = document position (mm) of the centre of the design's stitch bounds. felt = (cut shape in document mm, colour):
     show the patch cut out of felt, lying on a table."""
     final = min_px / min(frame.width, frame.height)  # px per mm; the short side gets min_px
     scale = final * SUPERSAMPLE
     size = (round(frame.width * scale), round(frame.height * scale))
-    minx, miny, _, _ = pattern.bounds()
+    minx, miny, maxx, maxy = pattern.bounds()
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
 
     def px(x: float, y: float) -> tuple[float, float]:
-        return ((anchor[0] + (x - minx) / 10) * scale, (anchor[1] + (y - miny) / 10) * scale)
+        # Centre to centre: pull compensation widens the stitches evenly on both sides, so centres agree.
+        return ((anchor[0] + (x - cx) / 10) * scale, (anchor[1] + (y - cy) / 10) * scale)
 
     colors = [_rgb(t.hex_color()) for t in pattern.threadlist] or [(0, 0, 0)]
     segments: list[tuple[tuple[float, float], tuple[float, float], tuple[int, int, int]]] = []
@@ -66,9 +68,13 @@ def render_preview(pattern: pyembroidery.EmbPattern, frame: Frame, anchor: tuple
     body_w, glint_w = max(2, round(width * 0.72)), max(1, round(width * 0.26))
     for a, b, color in segments:
         sheen = _sheen(a, b)
+        if sum(color) > 600:
+            # White thread shows direction as a soft sheen; the full swing reads as grey-versus-white halves.
+            sheen = 1 + (sheen - 1) * 0.45
         nx, ny = _light_side(a, b)
         off = width * 0.14
-        draw.line([a, b], fill=_shade(color, 0.6 * sheen), width=width)
+        groove = 0.78 if sum(color) > 600 else 0.6  # light thread casts a shallow groove, not a dark line
+        draw.line([a, b], fill=_shade(color, groove * sheen), width=width)
         draw.line([a, b], fill=_shade(color, 0.96 * sheen), width=body_w)
         draw.line([(a[0] + nx * off, a[1] + ny * off), (b[0] + nx * off, b[1] + ny * off)], fill=_shade(color, 1.22 * sheen), width=glint_w)
 

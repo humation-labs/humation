@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from shapely.geometry import Polygon
+import numpy as np
+import shapely
+from shapely.geometry import LineString, Polygon
+from shapely.geometry.polygon import orient
 from shapely.geometry.base import BaseGeometry
 
 from .geometry import clean, polygons
@@ -55,3 +58,47 @@ def cut_contour(shape: Polygon, margin_mm: float, smooth_mm: float) -> Polygon:
     r = smooth_mm
     body = polygons(clean(shape.buffer(margin_mm + r, quad_segs=16).buffer(-r, quad_segs=16)))[0]
     return Polygon(body.exterior).simplify(0.02, preserve_topology=True)
+
+
+def outline_bridges(shape: Polygon, line_art: BaseGeometry, width_mm: float, max_gap_mm: float,
+                    tolerance_mm: float = 0.25, step_mm: float = 0.1, crop: BaseGeometry | None = None) -> list[LineString]:
+    """Centre lines of satins that close short gaps in the drawn outer line (--border outline).
+
+    The drawn outer line is sewn as it is, like every other line. Only where the silhouette edge runs without
+    a drawn line for at most max_gap_mm (a break in the hand-drawn stroke) is a satin of width_mm added, just
+    inside the edge, overlapping the drawn line on both sides. Longer undrawn edges (an item drawn without an
+    outline, the straight crop at the bottom) are left as the artwork has them."""
+    ring = orient(shape, 1.0).exterior
+    n = max(16, int(ring.length / step_mm))
+    pts = np.array([ring.interpolate(i * ring.length / n).coords[0] for i in range(n)])
+    covered = shapely.contains_xy(line_art.buffer(tolerance_mm, quad_segs=8), pts[:, 0], pts[:, 1])
+    if crop is not None:
+        # The straight crop is where the artwork is cut, not a break in a drawn line: never bridge it.
+        covered |= shapely.distance(shapely.points(pts), crop.boundary) < 0.05
+    if covered.all() or not covered.any():
+        return []
+    # Inward normals: for a counter-clockwise ring the inside is on the left of the direction of travel.
+    tangent = np.roll(pts, -1, axis=0) - np.roll(pts, 1, axis=0)
+    tangent /= np.maximum(np.hypot(*tangent.T), 1e-9)[:, None]
+    inward = np.stack([-tangent[:, 1], tangent[:, 0]], axis=1)
+    centre = pts + inward * (width_mm / 2)
+
+    start = int(np.argmax(covered))  # walk the ring from a covered point so no gap wraps around the start
+    order = np.roll(np.arange(n), -start)
+    bridges, run = [], []
+    for i in [*order, order[0]]:
+        if not covered[i]:
+            run.append(i)
+            continue
+        if run:
+            length = len(run) * ring.length / n
+            if length <= max_gap_mm:
+                # Overlap the drawn line by one width on each side so the bridge joins it without a seam.
+                pad = max(1, int(width_mm / (ring.length / n)))
+                idx = [order[(np.where(order == run[0])[0][0] - k) % n] for k in range(pad, 0, -1)] + run + \
+                      [order[(np.where(order == run[-1])[0][0] + k) % n] for k in range(1, pad + 1)]
+                line = LineString(centre[idx]).simplify(0.03, preserve_topology=False)
+                if line.length > width_mm:
+                    bridges.append(line)
+            run = []
+    return bridges

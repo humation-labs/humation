@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import subprocess
@@ -79,21 +80,12 @@ def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config, guided: bool = T
         elif item.kind == "satin" and item.satin is not None:
             # Two rails with equal node counts: Ink/Stitch uses each node pair as a rung.
             d = " ".join(_polyline_d(rail, frame) for rail in item.satin.rails)
-            # Wide satins (the heat-cut edge) need zigzag + contour underlay to stand up; narrow lines a centre walk.
-            wide = item.satin.width >= 2.0
-            narrow = item.satin.width < 1.2
-            attrs = {
-                "style": f"fill:none;stroke:{item.thread.hex};stroke-width:0.1",
-                "inkstitch:satin_column": "True",
-                "inkstitch:zigzag_spacing_mm": fmt_coord(cfg.border.zigzag_spacing_mm if wide else cfg.thin.zigzag_spacing_mm),
-                "inkstitch:center_walk_underlay": "False" if wide or narrow else "True",
-                "inkstitch:contour_underlay": "True" if wide else "False",
-                "inkstitch:zigzag_underlay": "True" if wide else "False",
-                "inkstitch:pull_compensation_mm": fmt_coord(cfg.thin.pull_compensation_mm),
-                # On tight curves the inside of a satin crowds; every other stitch stops short there.
-                "inkstitch:short_stitch_inset": fmt_coord(cfg.thin.short_stitch_inset_percent),
-                "inkstitch:short_stitch_distance_mm": fmt_coord(cfg.thin.short_stitch_distance_mm),
-            }
+            attrs = {"style": f"fill:none;stroke:{item.thread.hex};stroke-width:0.1", "inkstitch:satin_column": "True",
+                     **_satin_recipe(item.satin, cfg),
+                     # stitchgen already chains satins tip to tip; Ink/Stitch's own nearest-point start/end would
+                     # split small satins and leave travel and tie stitches on top of an eye.
+                     "inkstitch:start_at_nearest_point": "False",
+                     "inkstitch:end_at_nearest_point": "False"}
         else:
             d = geom_to_path_d(frame.place(item.geometry))
             attrs = {
@@ -110,8 +102,61 @@ def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config, guided: bool = T
             # Ink/Stitch finds a guide line as a marked sibling in the same group.
             marker = "fill:none;stroke:#000000;stroke-width:0.1;marker-start:url(#inkstitch-guide-line-marker)"
             path = f'<g id="group-{n:03d}">\n  {path}\n  <path id="guide-{n:03d}" d="{guide}" style="{marker}"/>\n</g>'
+        if item.kind == "satin" and item.satin is not None and item.satin.dot and not item.satin.run:
+            # Lead into an eye from its middle: Ink/Stitch puts the tie-in on this short run, which the satin
+            # rows then cover, instead of knotting it onto the visible tip row.
+            lead = _lead_in(item.satin, frame)
+            if lead:
+                body.append(f'<path id="lead-{n:03d}" d="{lead}" style="fill:none;stroke:{item.thread.hex};stroke-width:0.1" '
+                            f'inkstitch:running_stitch_length_mm="0.5000"/>')
         body.append(path)
     return svg_document(frame.width, frame.height, body)
+
+
+def _lead_in(satin, frame: Frame) -> str:
+    a, b = satin.rails
+    start = ((a[0][0] + b[0][0]) / 2, (a[0][1] + b[0][1]) / 2)
+    mid = satin.centre.interpolate(0.5, normalized=True)
+    if math.dist(start, (mid.x, mid.y)) < 0.3:
+        return ""
+    return _polyline_d([(mid.x, mid.y), start], frame)
+
+
+def _satin_recipe(satin, cfg: Config) -> dict[str, str]:
+    """Density, underlay and compensation by kind of satin."""
+    if satin.dot:
+        # Eyes and small marks: dense, no underlay, no pull compensation (it would round and enlarge them),
+        # no short stitches (on a 1.5 mm dot every row is a "tight curve").
+        return {
+            "inkstitch:zigzag_spacing_mm": fmt_coord(cfg.thin.dot_zigzag_spacing_mm),
+            "inkstitch:center_walk_underlay": "False",
+            "inkstitch:contour_underlay": "False",
+            "inkstitch:zigzag_underlay": "False",
+            "inkstitch:pull_compensation_mm": "0.0000",
+            "inkstitch:short_stitch_inset": "0.0000",
+        }
+    if satin.width >= 2.0:
+        # Wide satins (the heat-cut edge, broad petals) need zigzag + contour underlay to stand up.
+        return {
+            "inkstitch:zigzag_spacing_mm": fmt_coord(cfg.border.zigzag_spacing_mm),
+            "inkstitch:center_walk_underlay": "False",
+            "inkstitch:contour_underlay": "True",
+            "inkstitch:zigzag_underlay": "True",
+            "inkstitch:pull_compensation_mm": fmt_coord(cfg.border.pull_compensation_mm),
+            "inkstitch:short_stitch_inset": fmt_coord(cfg.border.short_stitch_inset_percent),
+            "inkstitch:short_stitch_distance_mm": fmt_coord(cfg.thin.short_stitch_distance_mm),
+        }
+    return {
+        "inkstitch:zigzag_spacing_mm": fmt_coord(cfg.thin.zigzag_spacing_mm),
+        "inkstitch:center_walk_underlay": "True" if satin.width >= 1.2 else "False",
+        "inkstitch:contour_underlay": "False",
+        "inkstitch:zigzag_underlay": "False",
+        "inkstitch:pull_compensation_mm": fmt_coord(cfg.thin.pull_compensation_mm),
+        # On tight curves the inside of a satin crowds; alternate stitches stop short there. Kept mild: a deep
+        # inset notches the visible edge and lets the fill below show through.
+        "inkstitch:short_stitch_inset": fmt_coord(cfg.thin.short_stitch_inset_percent),
+        "inkstitch:short_stitch_distance_mm": fmt_coord(cfg.thin.short_stitch_distance_mm),
+    }
 
 
 def _polyline_d(points, frame: Frame) -> str:

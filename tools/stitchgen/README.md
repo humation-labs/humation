@@ -81,8 +81,9 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
    floating parts (items) bridged.
 4. **Outer line and patch** (`border.py`). The avatar already has a drawn outer outline. The border replaces
    it instead of adding a second edge.
-   - `--border outline` (default). The outer line is sewn like every other line: a 1.1 mm satin entirely inside
-     the silhouette. Gaps in the hand-drawn line and the straight crop at the bottom are closed by it.
+   - `--border outline` (default). The drawn outer line is kept as line art and sewn like every other line, at its
+     own width. Nothing is added: where the artwork leaves the edge open (the straight crop at the bottom, an
+     undrawn gap) the embroidery leaves it open too. `border.bridge_max_mm` can bridge short gaps if wanted.
    - `--patch felt` (default). Embroider on white felt and cut it out along `cutline.svg`, a smooth contour
      1.5 mm outside the outer line. Felt does not fray, and the artwork's own outer line finishes the edge, so
      nothing is stitched around the artwork and no placement run is needed. `preview.png` shows the cut-out felt.
@@ -123,21 +124,42 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
      digitising rule. This covers petals, leaves, stems, strands of hair and collars.
      - A part that branches nowhere is one satin between its own two sides.
      - Tapering edges and rounded-off corners that meet the wide area along a long seam stay tatami.
-   - Line-layer parts are skeletonised into centrelines. Each becomes a satin column
-     made of two rails. Each rail is offset by the line's own local half-width, with a minimum width of 1 mm.
-     Satin width therefore follows the drawn line, ends round off like the brush stroke, and the inner rail is
-     pulled in on tight bends so it never folds.
-   - Compact marks up to 5 mm long, such as eyes and short dashes, use their own contour as rails. The contour is
-     split at both ends of the long axis, so a round eye stays round.
-   - Line art finer than `thin.running_max_mm` (0.7 mm) is a triple running stitch along its centre (bean stitch),
-     rather than a satin widened to 1 mm.
-   - Satins on tight curves use short stitches on the crowded inside (`short_stitch_inset_percent`).
+   - Line-layer parts are skeletonised into centrelines. Each becomes a satin column made of two rails.
+     - Each rail follows its own drawn edge, measured on a raster, so a line that bulges on one side keeps the
+       bulge. Width is at least 1 mm.
+     - A free end runs on to the drawn tip and is rounded like the brush stroke.
+     - An end at a junction is cut flat and tucked 0.3 mm under the line it meets, so lines do not pile up at
+       joins. Where no line passes through the junction, the end stays rounded so no hole opens.
+     - An end cut by the crop is clipped flush to it.
+     - The inner rail is pulled in on tight bends so it never folds.
+     - Separate strokes drawn closer than `thin.min_gap_mm` (0.35 mm, a double collar) are thinned on the facing
+       side, so a gap stays open between the needles.
+     - Skeleton branches count by how far their drawn tip sticks out past the stroke (`thin.spur_reach_mm`), so
+       hooks, curl tips and toes stay and only noise inside thick strokes goes.
+   - Compact marks up to 5 mm long (eyes, short dashes) are sewn as their own recipe:
+     - rails are chords cut across the mark, so every stitch is a full row on the drawn outline;
+     - the first and last rows lie half a thread inside the tips, and the end rows are shortened a little;
+     - a nearly round mark is always horizontal, and every mark is sewn in the same direction, so the two eyes
+       of a face come out alike;
+     - dense (0.25 mm), no underlay, no pull compensation, no short stitches;
+     - a short lead-in run from the middle carries the tie-in under the rows.
+   - Line art finer than `thin.running_max_mm` (0.7 mm), whether a line or a mark, is a triple running stitch
+     (bean stitch) rather than a satin widened to 1 mm.
+   - Every satin keeps the start and end stitchgen chose (Ink/Stitch's nearest-point start and end are off: on a
+     small satin they split it and leave travel and tie stitches on top).
+   - Pull compensation is 0.05 mm on lines (their rails already sit on the drawn edge) and 0.15 mm on wide
+     satins. Short stitches on tight curves are mild (15 %), so they do not notch the visible edge.
    - Fill underlay is inset 0.3 mm so it never shows at the edges.
-   - Thin parts of fill-layer regions stay with their own fill.
+   - Thin parts of fill-layer regions are one satin between their own sides when that fits cleanly, and tatami
+     otherwise. A fill that carries several motifs of one thread (White skin and a white tee) is split by motif,
+     so each gets its own flow.
+   - Underlap: a fill reaches 0.3 mm under whatever of the fill layer is sewn after it. Against things sewn
+     before it, and against felt, it keeps its drawn edge.
 
 6. **Order** (`order.py`). Sewing order:
    1. placement run
-   2. fill layer, thread by thread by total area (largest first), each with its own narrow satins. The stitched
+   2. fill layer, thread by thread by total area (largest first), each with its own narrow satins, then the fill
+      layer's small marks (catchlights, polka dots), so no later fill buries them. The stitched
       patch background is included here. The placement thread goes first, and a fill in the line colour (black
       hair) goes last so it runs straight into the line layer.
    3. line layer (outlines, eyes, details), chained nearest-first. It is sewn over the fills, as it is drawn
@@ -158,7 +180,9 @@ Guardrails add a warning but still finish the conversion:
 
 Every number above lives in `config.toml`.
 
-Conversion is deterministic. The same SVG and config give byte-identical `design.pes`, `design.dst` and `meta.json`.
+stitchgen's own output (`debug/07_inkstitch.svg`, `meta.json`) is byte-identical for the same SVG and config. Ink/Stitch's
+guided fill is not always bit-stable between processes: a few fill stitches can land one PES unit (0.1 mm) apart
+between runs. Satins and straight fills are identical.
 
 ## Input requirements
 

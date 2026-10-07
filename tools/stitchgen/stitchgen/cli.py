@@ -10,10 +10,11 @@ import tempfile
 import traceback
 from pathlib import Path
 
+import numpy as np
 from shapely.geometry import LineString, Polygon
 
-from .attributes import FillPart, assign_attributes
-from .border import cut_contour, make_border, make_patch
+from .attributes import FillPart, SatinLine, assign_attributes
+from .border import cut_contour, make_border, make_patch, outline_bridges
 from .colors import ColorRegion, ReducedDrawing, reduce_colors
 from .config import load_config, load_palette
 from .export import Frame, inkstitch_svg, read_back, run_inkstitch, summarize, thread_for
@@ -21,11 +22,13 @@ from .geometry import clean, polygons, union
 from .normalize import normalize
 from .order import sewing_order
 from .outline import silhouette
+from .satin import line_satin
 from .preview import render_artwork, render_compare, render_preview
 from .report import StitchgenError, Warning
 from .svgio import filled_path_element, geom_to_path_d, svg_document
 
 EXIT_OK, EXIT_WARN, EXIT_FAIL = 0, 1, 2
+OUTLINE_CLOSING_MM = 0.4  # outline mode: seal hairline cracks between touching strokes, keep the real notches
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -89,10 +92,15 @@ def run(args: argparse.Namespace) -> list[Warning]:
     # 5 (prepared early). The border takes over the avatar's own outer outline, so the artwork is cut back
     # to the area inside it before stitch types are chosen.
     border = None
+    bridges = []
     if args.border == "satin":
         border = make_border(shape, cfg.border.width_mm, cfg.border.inset_mm)
     elif args.border == "outline":
-        border = make_border(shape, cfg.border.outline_width_mm, cfg.border.outline_width_mm)
+        # The drawn outer line is kept and sewn like every other line; only short breaks in it are bridged.
+        tight = silhouette([r.geometry for r in everything], OUTLINE_CLOSING_MM)
+        if cfg.border.bridge_max_mm > 0:
+            bridges = outline_bridges(tight, union(r.geometry for r in reduced.line_art), cfg.border.outline_width_mm,
+                                      cfg.border.bridge_max_mm, crop=drawing.crop)
     stitched = reduced
     if border is not None:
         # The border is the drawn outer line, so that part of the line art is not sewn twice. Fills run on
@@ -105,8 +113,15 @@ def run(args: argparse.Namespace) -> list[Warning]:
                    for r in reduced.line_art]
         stitched = ReducedDrawing(reduced.regions, [], reduced.roles, [r for r in clipped if not r.geometry.is_empty])
     # 4. stitch attributes (the border thread doubles as the line-art thread)
-    attributed = assign_attributes(stitched, cfg, canvas=shape)
+    first = cfg.patch.edge if args.patch == "stitched" and args.border != "satin" else (cfg.border.color if args.border == "satin" else None)
+    first_hex = next((p.hex for p in palette if p.brother_number == first), None)
+    attributed = assign_attributes(stitched, cfg, canvas=shape, crop=drawing.crop, first=first_hex)
     warnings += attributed.warnings
+    half = cfg.border.outline_width_mm / 2
+    for line in bridges:
+        satin = line_satin(line, lambda arr, _n: (np.full(len(arr), half), np.full(len(arr), half)), False, half, half, caps=(False, False))
+        if satin is not None:
+            attributed.satins.append(SatinLine(border_thread, satin, "line"))
     # 5b. patch: background margin and heat-cut edge around the artwork (the satin border already is one)
     patch = patch_thread = cut = None
     if args.patch == "felt" and args.border != "satin":
@@ -142,11 +157,12 @@ def run(args: argparse.Namespace) -> list[Warning]:
 
     # Previews
     anchor_geom = union(_footprint(i) for i in items)
-    minx, miny, _, _ = frame.place(anchor_geom).bounds
+    fx0, fy0, fx1, fy1 = frame.place(anchor_geom).bounds
+    centre = ((fx0 + fx1) / 2, (fy0 + fy1) / 2)  # Ink/Stitch writes the PES around the stitch plan's centre
     if cut is not None:
         (out / "cutline.svg").write_text(svg_document(frame.width, frame.height, [_cut_path(frame.place(cut))]), encoding="utf-8")
     felt = (frame.place(cut), cfg.patch.felt) if cut is not None else None
-    preview = render_preview(pattern, frame, (minx, miny), out / "preview.png", felt=felt)
+    preview = render_preview(pattern, frame, centre, out / "preview.png", felt=felt)
     artwork = render_artwork(everything, frame, preview.size)  # line art painted over the fills
     render_compare(artwork, preview, out / "compare.png")
 

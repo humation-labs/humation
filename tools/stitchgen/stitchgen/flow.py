@@ -15,7 +15,7 @@ from shapely.geometry import LineString, Polygon
 
 SAMPLES = 24
 # Straight stitches cut across curved rows; tighter flows need shorter stitches so the chords do not leave gaps.
-STITCH_LENGTH_MM = {"arch": 2.5, "wrap": 3.0, "drape": 3.5}
+STITCH_LENGTH_MM = {"arch": 1.8, "wrap": 3.0, "drape": 3.5}
 
 
 def guide_line(flow: str, part: Polygon, reference: tuple[float, float, float, float] | None = None) -> tuple[LineString, int] | None:

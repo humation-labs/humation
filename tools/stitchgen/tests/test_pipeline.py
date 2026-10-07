@@ -188,10 +188,13 @@ def test_round_dot_keeps_round_contour():
     reduced = ReducedDrawing([], [], {}, [ColorRegion(BLACK, dot)])
     satin = assign_attributes(reduced, CFG).satins[0].satin
     a, b = satin.rails
-    assert len(a) == len(b) >= 5
-    # Rails are the two halves of the circle, so rung lengths shrink towards both ends.
+    assert satin.dot and len(a) == len(b) >= 5
+    # Rails are chords cut across the dot: every stitch is a full row following the round outline, the first
+    # and last rows start just inside the tips (no zero-width diagonal stitch), and a round dot is horizontal.
     rungs = [((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5 for (ax, ay), (bx, by) in zip(a, b)]
-    assert max(rungs) == pytest.approx(1.2, abs=0.1) and rungs[0] < 0.2 and rungs[-1] < 0.2
+    assert max(rungs) == pytest.approx(1.2, abs=0.05)
+    assert 0.5 < rungs[0] < 0.9 and 0.5 < rungs[-1] < 0.9
+    assert all(abs(ay - by) < 1e-6 for (_, ay), (_, by) in zip(a, b))
 
 
 def test_neighbouring_fills_alternate_angles():
@@ -384,3 +387,63 @@ def test_regular_fill_pattern_uses_tatami_stagger():
     reduced = ReducedDrawing([ColorRegion(PALETTE[2], box(0, 0, 20, 20))], [])
     svg = inkstitch_svg(sewing_order(assign_attributes(reduced, cfg), None, BLACK), Frame.around((0, 0, 20, 20)), cfg)
     assert 'inkstitch:staggers="4"' in svg and "enable_random_stitch_length" not in svg
+
+
+# --- quality round: eyes, gaps, junctions, crop -----------------------------------------------------------
+
+
+def test_eye_pair_is_identical_and_level():
+    from shapely import affinity
+    from shapely.geometry import Point
+
+    from stitchgen.satin import dot_satin
+
+    eye = affinity.scale(Point(0, 0).buffer(1, quad_segs=32), 0.75, 0.95)  # an upright 1.5 x 1.9 mm oval
+    left, right = dot_satin(eye, 1.0), dot_satin(affinity.translate(eye, 5, 0), 1.0)
+    assert left.dot and right.dot
+    shifted = [v for x, y in right.rails[0] for v in (x - 5, y)]
+    assert shifted == pytest.approx([v for p in left.rails[0] for v in p], abs=1e-3)  # same rows, same direction
+    assert all(abs(ay - by) < 1e-6 for (_, ay), (_, by) in zip(*left.rails))  # rows are level
+    ys = [y for _, y in left.rails[0]]
+    assert min(ys) == pytest.approx(-0.95 + 0.2, abs=0.02)  # first row half a thread inside the tip
+
+
+def test_satins_keep_their_own_start_and_end():
+    reduced = ReducedDrawing([], [], {}, [ColorRegion(BLACK, box(0, 0, 10, 1.2))])
+    svg = inkstitch_svg(sewing_order(assign_attributes(reduced, CFG), None, BLACK), Frame.around((0, 0, 10, 2)), CFG)
+    assert 'inkstitch:start_at_nearest_point="False"' in svg and 'inkstitch:end_at_nearest_point="False"' in svg
+
+
+def test_eye_gets_a_hidden_lead_in_and_no_compensation():
+    from shapely.geometry import Point
+
+    reduced = ReducedDrawing([], [], {}, [ColorRegion(BLACK, Point(5, 5).buffer(0.8, quad_segs=16))])
+    svg = inkstitch_svg(sewing_order(assign_attributes(reduced, CFG), None, BLACK), Frame.around((0, 0, 10, 10)), CFG)
+    assert 'id="lead-' in svg
+    assert 'inkstitch:pull_compensation_mm="0.0000"' in svg and 'inkstitch:short_stitch_inset="0.0000"' in svg
+
+
+def test_double_line_keeps_its_gap():
+    # Two 1.3 mm strokes drawn 0.25 mm apart and joined at one end (one polygon, like a collar).
+    a, b = box(0, 0, 20, 1.3), box(0, 1.55, 20, 2.85)
+    double = a.union(b).union(box(19, 0, 20, 2.85))
+    reduced = ReducedDrawing([], [], {}, [ColorRegion(BLACK, double)])
+    satins = [s.satin for s in assign_attributes(reduced, CFG).satins]
+    rails = [p for s in satins for rail in s.rails for p in rail if 3 < p[0] < 17]
+    in_gap = [y for _, y in rails if 1.3 + 0.02 < y < 1.55 - 0.02]
+    assert not in_gap  # no needle lands in the drawn gap
+
+
+def test_line_cut_by_crop_ends_flush_on_it(tmp_path):
+    body = '<rect x="10" y="0" width="1.3" height="40" fill="var(--hm-stroke, #000)"/><rect x="0" y="0" width="20" height="5" fill="#ff0000"/>'
+    d = normalize(svg(tmp_path, body, 'viewBox="0 0 20 30"'), 30)
+    reduced = reduce_colors(d, PALETTE, CFG.colors.max)
+    satins = [s.satin for s in assign_attributes(reduced, CFG, crop=d.crop).satins if s.layer == "line"]
+    bottom = max(y for s in satins for rail in s.rails for _, y in rail)
+    assert bottom == pytest.approx(d.crop.bounds[3], abs=0.01)
+
+
+def test_hairline_mark_is_a_run_not_a_widened_dot():
+    reduced = ReducedDrawing([], [], {}, [ColorRegion(BLACK, box(0, 0, 2.0, 0.4))])
+    satins = assign_attributes(reduced, CFG).satins
+    assert len(satins) == 1 and satins[0].satin.run

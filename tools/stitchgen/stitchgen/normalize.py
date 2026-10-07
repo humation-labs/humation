@@ -53,6 +53,7 @@ class NormalizedDrawing:
     height_mm: float
     input_element_count: int
     warnings: list[Warning] = field(default_factory=list)
+    crop: Polygon | None = None  # the SVG viewBox in output mm: where the artwork is cut, not drawn
 
 
 @dataclass
@@ -121,6 +122,7 @@ def normalize(svg_path: str | Path, size_mm: float, line_threshold_mm: float = 2
         height_mm=round((maxy - miny) * scale, 4),
         input_element_count=len(raw),
         warnings=warnings,
+        crop=clean(affinity.affine_transform(viewport, [scale, 0, 0, scale, -minx * scale, -miny * scale]), min_area=0) if viewport is not None else None,
     )
 
 

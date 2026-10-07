@@ -44,12 +44,15 @@ class ThinConfig:
     satin_min_mm: float
     satin_max_mm: float
     zigzag_spacing_mm: float
+    dot_zigzag_spacing_mm: float
     pull_compensation_mm: float
+    min_gap_mm: float
     short_stitch_inset_percent: float
     short_stitch_distance_mm: float
     running_max_mm: float
     running_stitch_length_mm: float
     spur_min_mm: float
+    spur_reach_mm: float
     simplify_mm: float
 
 
@@ -63,6 +66,9 @@ class BorderConfig:
     width_mm: float
     inset_mm: float
     outline_width_mm: float
+    bridge_max_mm: float
+    pull_compensation_mm: float
+    short_stitch_inset_percent: float
     zigzag_spacing_mm: float
     color: str
     placement_stitch_length_mm: float
@@ -164,12 +170,15 @@ def load_config(path: str | Path | None = None) -> Config:
             satin_min_mm=float(raw["thin"]["satin_min_mm"]),
             satin_max_mm=float(raw["thin"]["satin_max_mm"]),
             zigzag_spacing_mm=float(raw["thin"]["zigzag_spacing_mm"]),
+            dot_zigzag_spacing_mm=float(raw["thin"]["dot_zigzag_spacing_mm"]),
             pull_compensation_mm=float(raw["thin"]["pull_compensation_mm"]),
+            min_gap_mm=float(raw["thin"]["min_gap_mm"]),
             short_stitch_inset_percent=float(raw["thin"]["short_stitch_inset_percent"]),
             short_stitch_distance_mm=float(raw["thin"]["short_stitch_distance_mm"]),
             running_max_mm=float(raw["thin"]["running_max_mm"]),
             running_stitch_length_mm=float(raw["thin"]["running_stitch_length_mm"]),
             spur_min_mm=float(raw["thin"]["spur_min_mm"]),
+            spur_reach_mm=float(raw["thin"]["spur_reach_mm"]),
             simplify_mm=float(raw["thin"]["simplify_mm"]),
         ),
         outline=OutlineConfig(concavity_fill_mm=float(raw["outline"]["concavity_fill_mm"])),
@@ -177,6 +186,9 @@ def load_config(path: str | Path | None = None) -> Config:
             width_mm=float(raw["border"]["width_mm"]),
             inset_mm=float(raw["border"]["inset_mm"]),
             outline_width_mm=float(raw["border"]["outline_width_mm"]),
+            bridge_max_mm=float(raw["border"]["bridge_max_mm"]),
+            pull_compensation_mm=float(raw["border"]["pull_compensation_mm"]),
+            short_stitch_inset_percent=float(raw["border"]["short_stitch_inset_percent"]),
             zigzag_spacing_mm=float(raw["border"]["zigzag_spacing_mm"]),
             color=str(raw["border"]["color"]),
             placement_stitch_length_mm=float(raw["border"]["placement_stitch_length_mm"]),
