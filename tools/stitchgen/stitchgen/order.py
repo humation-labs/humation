@@ -8,7 +8,7 @@ from typing import Literal
 
 from shapely.geometry import LineString, Polygon
 
-from .attributes import Attributed, SatinLine
+from .attributes import Attributed, FillPart, SatinLine
 from .border import Border, Patch
 from .config import PaletteColor
 from .satin import Satin
@@ -31,43 +31,52 @@ class Item:
 
 def sewing_order(attributed: Attributed, border: Border | None, border_thread: PaletteColor | None, placement: bool = True,
                  patch: Patch | None = None, patch_thread: PaletteColor | None = None) -> list[Item]:
-    """placement run -> fills (patch background included) -> line satins -> outer line -> patch edge."""
+    """placement run -> fill layer (colour by colour) -> line layer (Humation line art) -> outer line -> patch edge.
+    The line art is drawn over the fills in the artwork, so it is sewn over them too and covers every seam."""
     items: list[Item] = []
     if patch is not None and patch_thread is not None:
         items.append(Item("run", patch_thread, patch.edge.centre, "placement"))
     elif placement and border is not None and border_thread is not None:
         items.append(Item("run", border_thread, border.satin.centre, "placement"))
 
-    # Fills: thread groups by total area (largest first), regions by area within a thread.
-    fill_area: dict[str, float] = {}
-    for f in attributed.fills:
-        fill_area[f.thread.hex] = fill_area.get(f.thread.hex, 0.0) + f.geometry.area
-    fill_threads = sorted(fill_area, key=lambda h: (-round(fill_area[h], 4), h))
-    if items and items[-1].thread.hex in fill_threads:
-        # Sewing the placement thread's fills next saves a colour change.
-        fill_threads.remove(items[-1].thread.hex)
-        fill_threads.insert(0, items[-1].thread.hex)
-    # Line-art satins (the border thread) go on top of everything; other threads' thin parts (hair
-    # strands, stems) are sewn right after that thread's fills so the colour is not loaded twice.
-    final = border_thread.hex if border is not None and border_thread is not None else None
-    satin_threads = sorted({s.thread.hex for s in attributed.satins})
-    line_art = final if final in satin_threads else None
-    for hex_ in fill_threads:
-        group = sorted((f for f in attributed.fills if f.thread.hex == hex_), key=lambda f: (-round(f.geometry.area, 4), f.geometry.bounds))
-        items.extend(Item("fill", f.thread, f.geometry, "fill", angle=f.angle, guide=f.guide, guide_strategy=f.guide_strategy, flow=f.flow) for f in group)
-        if hex_ != line_art and hex_ in satin_threads:
-            _add_satins(items, attributed.satins, hex_)
-    for hex_ in satin_threads:
-        if hex_ != line_art and hex_ not in fill_threads:
-            _add_satins(items, attributed.satins, hex_)
-    if line_art is not None:
-        _add_satins(items, attributed.satins, line_art)
+    fills = [f for f in attributed.fills if f.layer == "fill"]
+    satins = [s for s in attributed.satins if s.layer == "fill"]
+    line_fills = [f for f in attributed.fills if f.layer == "line"]
+    line_satins = [s for s in attributed.satins if s.layer == "line"]
+    line_threads = sorted({x.thread.hex for x in [*line_fills, *line_satins]})
+
+    # Fill layer: thread groups by total area (largest first). Each thread's narrow satins follow its fills.
+    area: dict[str, float] = {}
+    for f in fills:
+        area[f.thread.hex] = area.get(f.thread.hex, 0.0) + f.geometry.area
+    threads = sorted(area, key=lambda h: (-round(area[h], 4), h))
+    threads += sorted({s.thread.hex for s in satins} - set(threads))
+    if items and items[-1].thread.hex in threads:
+        threads.remove(items[-1].thread.hex)  # the placement thread's fills go first: one colour change fewer
+        threads.insert(0, items[-1].thread.hex)
+    for hex_ in [h for h in threads if h in line_threads]:
+        threads.remove(hex_)  # a fill in the line colour (black hair) goes last, straight into the line layer
+        threads.append(hex_)
+    for hex_ in threads:
+        _add_fills(items, fills, hex_)
+        _add_satins(items, satins, hex_)
+
+    # Line layer: solid line-art shapes, then the lines, nearest first.
+    for hex_ in line_threads:
+        _add_fills(items, line_fills, hex_)
+        _add_satins(items, line_satins, hex_)
 
     if border is not None and border_thread is not None:
         items.append(Item("satin", border_thread, border.satin.centre, "border", satin=border.satin))
     if patch is not None and patch_thread is not None:
         items.append(Item("satin", patch_thread, patch.edge.centre, "edge", satin=patch.edge))
     return items
+
+
+def _add_fills(items: list[Item], fills: list[FillPart], hex_: str) -> None:
+    group = sorted((f for f in fills if f.thread.hex == hex_), key=lambda f: (-round(f.geometry.area, 4), f.geometry.bounds))
+    items.extend(Item("fill", f.thread, f.geometry, "fill", angle=f.angle, guide=f.guide, guide_strategy=f.guide_strategy, flow=f.flow)
+                 for f in group)
 
 
 def _add_satins(items: list[Item], satins: list[SatinLine], hex_: str) -> None:

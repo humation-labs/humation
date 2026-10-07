@@ -9,7 +9,7 @@ from shapely.geometry.base import BaseGeometry
 
 from .config import PaletteColor
 from .geometry import polygons, union
-from .normalize import NormalizedDrawing
+from .normalize import LINE_ROLE, NormalizedDrawing
 from .report import Warning
 
 
@@ -23,7 +23,8 @@ class ColorRegion:
 class ReducedDrawing:
     regions: list[ColorRegion]  # one per thread, largest total area first
     warnings: list[Warning]
-    roles: dict[str, BaseGeometry] = field(default_factory=dict)  # Humation colour slot -> visible area
+    roles: dict[str, BaseGeometry] = field(default_factory=dict)  # Humation colour slot -> area
+    line_art: list[ColorRegion] = field(default_factory=list)  # sewn last, on top of the fills
 
 
 def reduce_colors(drawing: NormalizedDrawing, palette: list[PaletteColor], max_colors: int,
@@ -51,15 +52,20 @@ def reduce_colors(drawing: NormalizedDrawing, palette: list[PaletteColor], max_c
         threads = [by_hex[target] if t.hex == smallest else t for t in threads]
 
     grouped: dict[str, list[BaseGeometry]] = {}
+    lines: dict[str, list[BaseGeometry]] = {}
     by_role: dict[str, list[BaseGeometry]] = {}
     for element, thread in zip(drawing.elements, threads):
-        grouped.setdefault(thread.hex, []).append(element.geometry)
+        (lines if element.role == LINE_ROLE else grouped).setdefault(thread.hex, []).append(element.geometry)
         if element.role:
             by_role.setdefault(element.role, []).append(element.geometry)
+    return ReducedDrawing(_regions(grouped, by_hex), warnings, {role: union(g) for role, g in sorted(by_role.items())},
+                          _regions(lines, by_hex))
+
+
+def _regions(grouped: dict[str, list[BaseGeometry]], by_hex: dict[str, PaletteColor]) -> list[ColorRegion]:
     regions = [ColorRegion(by_hex[h], union(geoms)) for h, geoms in grouped.items()]
     regions = [r for r in regions if polygons(r.geometry)]
-    regions.sort(key=lambda r: (-round(r.geometry.area, 4), r.thread.hex))
-    return ReducedDrawing(regions, warnings, {role: union(g) for role, g in sorted(by_role.items())})
+    return sorted(regions, key=lambda r: (-round(r.geometry.area, 4), r.thread.hex))
 
 
 def nearest(hex_color: str, palette: list[PaletteColor]) -> PaletteColor:

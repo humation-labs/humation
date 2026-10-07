@@ -75,13 +75,14 @@ def run(args: argparse.Namespace) -> list[Warning]:
         debug.mkdir(exist_ok=True)
 
     # 1. normalize
-    drawing = normalize(args.input, size)
+    drawing = normalize(args.input, size, cfg.thin.threshold_mm)
     warnings = list(drawing.warnings)
     # 2. reduce colours
     reduced = reduce_colors(drawing, palette, cfg.colors.max, cfg.colors.roles)
     warnings += reduced.warnings
     # 3. outline
-    shape = silhouette([r.geometry for r in reduced.regions], cfg.outline.concavity_fill_mm)
+    everything = [*reduced.regions, *reduced.line_art]
+    shape = silhouette([r.geometry for r in everything], cfg.outline.concavity_fill_mm)
     border_thread = next((p for p in palette if p.brother_number == cfg.border.color), None)
     if border_thread is None:
         raise StitchgenError(f"border colour {cfg.border.color} is not in the palette")
@@ -94,10 +95,17 @@ def run(args: argparse.Namespace) -> list[Warning]:
         border = make_border(shape, cfg.border.outline_width_mm, cfg.border.outline_width_mm)
     stitched = reduced
     if border is not None:
-        clipped = [ColorRegion(r.thread, clean(r.geometry.intersection(border.inner))) for r in reduced.regions]
-        stitched = ReducedDrawing([r for r in clipped if not r.geometry.is_empty], [], reduced.roles)
+        # The border is the drawn outer line, so that part of the line art is not sewn twice. Fills run on
+        # under it like under every other line.
+        # The drawn outer line is usually a little wider than the border, so clipping leaves a hairline sliver
+        # along its inner edge. An opening below the finest stitchable line removes it.
+        sliver = cfg.thin.running_max_mm / 2
+        clipped = [ColorRegion(r.thread, clean(r.geometry.intersection(border.inner)
+                                                .buffer(-sliver, quad_segs=8).buffer(sliver, quad_segs=8)))
+                   for r in reduced.line_art]
+        stitched = ReducedDrawing(reduced.regions, [], reduced.roles, [r for r in clipped if not r.geometry.is_empty])
     # 4. stitch attributes (the border thread doubles as the line-art thread)
-    attributed = assign_attributes(stitched, cfg, line_art_hex=border_thread.hex, canvas=shape)
+    attributed = assign_attributes(stitched, cfg, canvas=shape)
     warnings += attributed.warnings
     # 5b. patch: background margin and heat-cut edge around the artwork (the satin border already is one)
     patch = patch_thread = cut = None
@@ -108,7 +116,7 @@ def run(args: argparse.Namespace) -> list[Warning]:
         background_thread, patch_thread = threads.get(cfg.patch.background), threads.get(cfg.patch.edge)
         if background_thread is None or patch_thread is None:
             raise StitchgenError("patch background/edge colours must be palette brother_numbers")
-        painted = union([*(r.geometry for r in stitched.regions), *([border.outline] if border else [])])
+        painted = union([*(r.geometry for r in [*stitched.regions, *stitched.line_art]), *([border.outline] if border else [])])
         patch = make_patch(painted, shape, cfg.patch.margin_mm, cfg.patch.edge_width_mm, cfg.patch.smooth_mm, cfg.fill.overlap_mm)
         for part in polygons(patch.background):
             if part.area >= cfg.detail.min_mm ** 2:
@@ -139,7 +147,7 @@ def run(args: argparse.Namespace) -> list[Warning]:
         (out / "cutline.svg").write_text(svg_document(frame.width, frame.height, [_cut_path(frame.place(cut))]), encoding="utf-8")
     felt = (frame.place(cut), cfg.patch.felt) if cut is not None else None
     preview = render_preview(pattern, frame, (minx, miny), out / "preview.png", felt=felt)
-    artwork = render_artwork(reduced.regions, frame, preview.size)
+    artwork = render_artwork(everything, frame, preview.size)  # line art painted over the fills
     render_compare(artwork, preview, out / "compare.png")
 
     # Guardrails: report, never abort.
@@ -185,6 +193,8 @@ def _cut_path(cut) -> str:
 
 
 def _footprint(item):
+    if item.satin is not None and item.satin.run:
+        return item.satin.centre.buffer(0.2)
     if item.satin is not None:
         return Polygon(item.satin.rails[0] + item.satin.rails[1][::-1]).buffer(0)
     if isinstance(item.geometry, LineString):
@@ -211,11 +221,14 @@ def _write_debug(debug: Path, frame: Frame, drawing, reduced, shape, attributed,
         return f'<path d="{geom_to_path_d(frame.place(geom))}" fill="none" stroke="{color}" stroke-width="{width:.3f}" stroke-linejoin="round"/>'
 
     def satin(s, color: str) -> str:
+        if s.run:
+            return line(s.centre, color, 0.3)
         return fill(Polygon(s.rails[0] + s.rails[1][::-1]).buffer(0), color)
 
     doc("01_normalized.svg", [fill(e.geometry, e.color) for e in drawing.elements])
-    doc("02_reduced.svg", [fill(r.geometry, r.thread.hex) for r in reduced.regions])
-    doc("03_outline.svg", [fill(r.geometry, r.thread.hex) for r in reduced.regions] + [line(shape.exterior, "#e0007a", 0.2)])
+    painted = [*reduced.regions, *reduced.line_art]
+    doc("02_reduced.svg", [fill(r.geometry, r.thread.hex) for r in painted])
+    doc("03_outline.svg", [fill(r.geometry, r.thread.hex) for r in painted] + [line(shape.exterior, "#e0007a", 0.2)])
     doc("04_attributes.svg",
         [fill(f.geometry, f.thread.hex, f' opacity="0.8" data-angle="{f.angle:g}"') for f in attributed.fills]
         + [satin(s.satin, s.thread.hex) for s in attributed.satins]

@@ -34,6 +34,10 @@ UNSUPPORTED = {"image", "use", "foreignObject", "switch"}
 INHERITED = {"fill", "stroke", "stroke-width", "fill-rule", "stroke-linejoin", "stroke-linecap", "visibility", "color"}
 
 
+LINE_ROLE = "stroke"  # Humation's line-art colour slot (--hm-stroke)
+TUCK_MM = 0.3  # fills reach this far under the edge of solid line-art shapes
+
+
 @dataclass
 class Element:
     source_id: str
@@ -59,7 +63,8 @@ class _Raw:
     role: str | None = None
 
 
-def normalize(svg_path: str | Path, size_mm: float) -> NormalizedDrawing:
+def normalize(svg_path: str | Path, size_mm: float, line_threshold_mm: float = 2.5) -> NormalizedDrawing:
+    """line_threshold_mm: line art narrower than this is a line (fills run on beneath it); wider parts are solid."""
     svg_path = Path(svg_path)
     warnings: list[Warning] = []
     data = svg_path.read_bytes()
@@ -89,14 +94,25 @@ def normalize(svg_path: str | Path, size_mm: float) -> NormalizedDrawing:
         for r in raw
     ]
 
-    # Painter's order: whatever is drawn later hides what lies beneath it.
+    # Painter's order, with one exception that mirrors hand digitising: line art (Humation's stroke colour) is
+    # sewn last, on top of everything, so it never cuts the fills. A fill carries on underneath every line drawn
+    # over it and the line covers the seam. Only the solid cores of thick line-art shapes hide the fill below,
+    # so nothing is stitched twice there.
     elements: list[Element] = []
-    above: BaseGeometry = Polygon()
+    above_all: BaseGeometry = Polygon()  # everything drawn later: what really hides a line
+    above_fill: BaseGeometry = Polygon()  # later fills and solid line-art cores: what hides a fill
+    r_open = line_threshold_mm / 2
     for r in reversed(scaled):
-        visible = clean(r.geometry.difference(above))
-        if not visible.is_empty:
-            elements.append(Element(r.source_id, r.color, visible, r.role))
-        above = union([above, r.geometry])
+        is_line = r.role == LINE_ROLE
+        geometry = clean(r.geometry.difference(above_all if is_line else above_fill))
+        if not geometry.is_empty:
+            elements.append(Element(r.source_id, r.color, geometry, r.role))
+        above_all = union([above_all, r.geometry])
+        if is_line:
+            core = clean(r.geometry.buffer(-r_open, quad_segs=8).buffer(r_open - TUCK_MM, quad_segs=8))
+            above_fill = union([above_fill, core])
+        else:
+            above_fill = union([above_fill, r.geometry])
     elements.reverse()
 
     return NormalizedDrawing(

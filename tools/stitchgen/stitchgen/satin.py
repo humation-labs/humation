@@ -30,9 +30,10 @@ class Satin:
     centre: LineString  # used for sewing order and debug output
     width: float  # median width, mm
     closed: bool = False
+    run: bool = False  # too fine for satin: sewn as a triple running stitch along the centre line instead
 
     def reversed(self) -> Satin:
-        return Satin((self.rails[0][::-1], self.rails[1][::-1]), LineString(list(self.centre.coords)[::-1]), self.width, self.closed)
+        return Satin((self.rails[0][::-1], self.rails[1][::-1]), LineString(list(self.centre.coords)[::-1]), self.width, self.closed, self.run)
 
 
 def line_satin(line: LineString, half_at: Callable[[float, float], float], closed: bool, min_half: float, max_half: float) -> Satin | None:

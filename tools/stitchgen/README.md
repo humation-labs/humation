@@ -67,8 +67,13 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
 
 1. **Normalize** (`normalize.py`). Resolves `var(--hm-*)` colours. Bakes transforms. Turns shapes, strokes and
    `fill-rule` into polygons. Crops to the SVG viewBox, because Humation draws whole bodies and the crop hides the
-   rest. Drops a full-canvas background and scales the avatar to `--size` mm. Each element is then cut down to its
-   visible part, so the layering is resolved once and fills never stack.
+   rest. Drops a full-canvas background and scales the avatar to `--size` mm. Elements painted with Humation's line
+   colour (`--hm-stroke`) are the **line layer**. Everything else is the **fill layer**.
+   - Fills are cut down by the fills drawn over them, so they never stack. They are not cut by line art: a fill
+     runs on underneath every line drawn over it, and the line, sewn later, covers the seam (fill first, satin
+     over the edges, as in hand digitising). Only the solid core of a line-art shape wider than
+     `thin.threshold_mm` stops a fill, with a 0.3 mm tuck under its edge.
+   - Line art is cut down by everything drawn over it, so it shows exactly what the artwork shows.
 2. **Reduce colours** (`colors.py`). Maps every colour to the nearest `palette.json` thread by CIEDE2000.
    Colour slots listed in `[colors.roles]` are pinned instead: skin is always White. Merges the least-used threads
    until at most `colors.max` (6) remain. Same-thread neighbours become one region.
@@ -118,19 +123,25 @@ and written as `inkstitch:*` attributes, so the Ink/Stitch GUI is never involved
      digitising rule. This covers petals, leaves, stems, strands of hair and collars.
      - A part that branches nowhere is one satin between its own two sides.
      - Tapering edges and rounded-off corners that meet the wide area along a long seam stay tatami.
-   - Thin parts of the line-art thread (black) are skeletonised into centrelines. Each becomes a satin column
+   - Line-layer parts are skeletonised into centrelines. Each becomes a satin column
      made of two rails. Each rail is offset by the line's own local half-width, with a minimum width of 1 mm.
      Satin width therefore follows the drawn line, ends round off like the brush stroke, and the inner rail is
      pulled in on tight bends so it never folds.
    - Compact marks up to 5 mm long, such as eyes and short dashes, use their own contour as rails. The contour is
      split at both ends of the long axis, so a round eye stays round.
-   - Thin parts of other threads stay with their own fill.
+   - Line art finer than `thin.running_max_mm` (0.7 mm) is a triple running stitch along its centre (bean stitch),
+     rather than a satin widened to 1 mm.
+   - Satins on tight curves use short stitches on the crowded inside (`short_stitch_inset_percent`).
+   - Fill underlay is inset 0.3 mm so it never shows at the edges.
+   - Thin parts of fill-layer regions stay with their own fill.
 
 6. **Order** (`order.py`). Sewing order:
    1. placement run
-   2. fills (stitched-patch background included), by thread total area (largest first), with each thread's own thin
-      satins. The placement thread's fills go first.
-   3. line-art satins, chained nearest-first
+   2. fill layer, thread by thread by total area (largest first), each with its own narrow satins. The stitched
+      patch background is included here. The placement thread goes first, and a fill in the line colour (black
+      hair) goes last so it runs straight into the line layer.
+   3. line layer (outlines, eyes, details), chained nearest-first. It is sewn over the fills, as it is drawn
+      over them.
    4. outer line
    5. stitched-patch edge
 

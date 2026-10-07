@@ -61,6 +61,18 @@ def test_occlusion_removes_covered_shapes(tmp_path):
     assert [e.color for e in d.elements] == ["#0000ff"]
 
 
+def test_fills_run_on_under_line_art(tmp_path):
+    line = '<path d="M0 10 H20" stroke="var(--hm-stroke, #000)" stroke-width="1" fill="none"/>'
+    solid = '<rect x="12" y="0" width="8" height="8" fill="var(--hm-stroke, #000)"/>'
+    body = f'<rect width="20" height="20" fill="#ff0000"/>{line}{solid}'
+    d = normalize(svg(tmp_path, body, 'viewBox="-5 -5 30 30"'), 20)
+    fill = next(e for e in d.elements if e.role is None)
+    # Not cut by the 1 mm line drawn over it, but stopped (with a small tuck) by the solid shape.
+    assert fill.geometry.contains(box(1, 9.6, 11, 10.4))
+    assert fill.geometry.area == pytest.approx(400 - (8 - 0.3) * (8 - 0.3), rel=0.02)
+    assert all(e.role == "stroke" for e in d.elements if e is not fill)
+
+
 def test_background_rect_removed(tmp_path):
     body = '<rect width="100" height="100" fill="#eee"/><circle cx="50" cy="50" r="20" fill="#000"/>'
     d = normalize(svg(tmp_path, body), 40)
@@ -132,7 +144,7 @@ def test_nearest_palette_colour():
 def test_reduce_merges_down_to_max_colours():
     d = normalize(SAMPLES / "standard.svg", 60)
     reduced = reduce_colors(d, PALETTE, 3)
-    assert len(reduced.regions) == 3
+    assert len({r.thread.hex for r in [*reduced.regions, *reduced.line_art]}) == 3
     assert any(w.code == "color_merged" for w in reduced.warnings)
 
 
@@ -159,10 +171,10 @@ def test_border_covers_drawn_outline_and_reaches_outside():
 def test_thin_ring_becomes_closed_satin_following_its_width():
     ring = box(0, 0, 30, 30).difference(box(1.2, 1.2, 28.8, 28.8))  # 1.2 mm outline
     face = box(1.2, 1.2, 28.8, 28.8)
-    reduced = ReducedDrawing([ColorRegion(PALETTE[2], face), ColorRegion(BLACK, ring)], [])
-    attributed = assign_attributes(reduced, CFG, line_art_hex=BLACK.hex)
+    reduced = ReducedDrawing([ColorRegion(PALETTE[2], face)], [], {}, [ColorRegion(BLACK, ring)])
+    attributed = assign_attributes(reduced, CFG)
     assert [f.thread.hex for f in attributed.fills] == [PALETTE[2].hex]
-    assert len(attributed.satins) == 1
+    assert len(attributed.satins) == 1 and attributed.satins[0].layer == "line"
     satin = attributed.satins[0].satin
     assert satin.closed
     assert satin.width == pytest.approx(1.2, abs=0.15)
@@ -173,8 +185,8 @@ def test_round_dot_keeps_round_contour():
     from shapely.geometry import Point
 
     dot = Point(10, 10).buffer(0.6, quad_segs=16)  # 1.2 mm eye
-    reduced = ReducedDrawing([ColorRegion(BLACK, dot)], [])
-    satin = assign_attributes(reduced, CFG, line_art_hex=BLACK.hex).satins[0].satin
+    reduced = ReducedDrawing([], [], {}, [ColorRegion(BLACK, dot)])
+    satin = assign_attributes(reduced, CFG).satins[0].satin
     a, b = satin.rails
     assert len(a) == len(b) >= 5
     # Rails are the two halves of the circle, so rung lengths shrink towards both ends.
@@ -193,10 +205,10 @@ def test_sewing_order_placement_fills_lines_border():
     ring = box(0, 0, 30, 30).difference(box(1, 1, 29, 29))
     inner_line = box(10, 5, 11, 25)
     black = ring.union(inner_line)
-    reduced = ReducedDrawing([ColorRegion(PALETTE[2], box(1, 1, 29, 29).difference(inner_line)), ColorRegion(BLACK, black)], [])
     border = make_border(box(0, 0, 30, 30), CFG.border.width_mm, CFG.border.inset_mm)
-    clipped = ReducedDrawing([ColorRegion(r.thread, r.geometry.intersection(border.inner)) for r in reduced.regions], [])
-    attributed = assign_attributes(clipped, CFG, line_art_hex=BLACK.hex)
+    # The fill runs on under the line art; the line art inside the border is sewn on top of it.
+    reduced = ReducedDrawing([ColorRegion(PALETTE[2], box(0, 0, 30, 30))], [], {}, [ColorRegion(BLACK, black.intersection(border.inner))])
+    attributed = assign_attributes(reduced, CFG)
     items = sewing_order(attributed, border, BLACK)
     assert [i.role for i in items] == ["placement", "fill", "line", "border"]
 
@@ -208,7 +220,7 @@ def test_inkstitch_svg_is_deterministic_and_versioned():
 
     def build() -> str:
         border = make_border(shape, CFG.border.width_mm, CFG.border.inset_mm)
-        attributed = assign_attributes(reduced, CFG, line_art_hex=BLACK.hex, canvas=shape)
+        attributed = assign_attributes(reduced, CFG, canvas=shape)
         items = sewing_order(attributed, border, BLACK)
         return inkstitch_svg(items, Frame.around(border.outline.bounds), CFG)
 
@@ -269,7 +281,7 @@ def test_fills_follow_motif_flows_in_inkstitch_svg():
     d = normalize(SAMPLES / "standard.svg", 60)
     reduced = reduce_colors(d, PALETTE, CFG.colors.max, CFG.colors.roles)
     shape = silhouette([r.geometry for r in reduced.regions], 2.5)
-    attributed = assign_attributes(reduced, CFG, line_art_hex=BLACK.hex, canvas=shape)
+    attributed = assign_attributes(reduced, CFG, canvas=shape)
     flows = {f.flow for f in attributed.fills}
     assert {"arch", "wrap", "drape"} <= flows
     svg = inkstitch_svg(sewing_order(attributed, None, BLACK), Frame.around(shape.bounds), CFG)

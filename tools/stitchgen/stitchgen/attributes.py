@@ -12,7 +12,7 @@ from shapely.geometry import LineString, Polygon
 from shapely.geometry.base import BaseGeometry
 from skimage.morphology import skeletonize
 
-from .colors import ReducedDrawing
+from .colors import ColorRegion, ReducedDrawing
 from .config import Config, PaletteColor
 from .geometry import clean, polygons, union
 from .flow import guide_line
@@ -33,12 +33,14 @@ class FillPart:
     guide: LineString | None = None  # rows follow this curve (guided fill); None = straight rows at angle
     guide_strategy: int = 0
     flow: str | None = None
+    layer: str = "fill"  # fill: sewn first; line: Humation line art, sewn last on top
 
 
 @dataclass
 class SatinLine:
     thread: PaletteColor
     satin: Satin
+    layer: str = "fill"
 
 
 @dataclass
@@ -49,50 +51,27 @@ class Attributed:
     warnings: list[Warning] = field(default_factory=list)
 
 
-def assign_attributes(reduced: ReducedDrawing, cfg: Config, line_art_hex: str | None = None, canvas: BaseGeometry | None = None) -> Attributed:
-    """line_art_hex: the outline thread. Its thin parts are always satin lines; other threads' thin parts
-    that touch their own fill are narrow bits of that fill, and stay tatami instead of a web of satins.
+def assign_attributes(reduced: ReducedDrawing, cfg: Config, canvas: BaseGeometry | None = None) -> Attributed:
+    """Fill layer (reduced.regions) and line layer (reduced.line_art, sewn last on top).
     canvas: where fills may grow by fill.overlap_mm (defaults to the regions themselves)."""
-    t = cfg.thin.threshold_mm
-    silhouette = canvas if canvas is not None else union(r.geometry for r in reduced.regions)
+    silhouette = canvas if canvas is not None else union(r.geometry for r in [*reduced.regions, *reduced.line_art])
     fills: list[FillPart] = []
     satins: list[SatinLine] = []
-    dropped = 0
-    widened = 0
+    dropped = widened = 0
+    for layer, regions in (("fill", reduced.regions), ("line", reduced.line_art)):
+        for region in regions:
+            f, s, d, w = _region_stitches(region, cfg, layer)
+            fills += f
+            satins += s
+            dropped += d
+            widened += w
 
-    for region in reduced.regions:
-        geom = region.geometry
-        thick = clean(geom.buffer(-t / 2, quad_segs=8).buffer(t / 2, quad_segs=8).intersection(geom))
-        thin_parts: list[Polygon] = []
-        absorbed: list[Polygon] = []
-        for part in polygons(clean(geom.difference(thick))):
-            # Corner leftovers of an opening stay with the fill they belong to.
-            touching = not thick.is_empty and part.distance(thick) < 0.05
-            if touching and (part.area < t * t or region.thread.hex != line_art_hex):
-                absorbed.append(part)
-            elif _too_small(part, cfg.detail.min_mm):
-                dropped += 1
-            else:
-                thin_parts.append(part)
-        for part in polygons(union([thick, *absorbed])):
-            if _too_small(part, cfg.detail.min_mm):
-                dropped += 1
-                continue
-            wide, narrow = _split_narrow(part, cfg.fill.satin_max_width_mm)
-            fills.extend(FillPart(region.thread, p) for p in wide)
-            satins.extend(SatinLine(region.thread, satin)
-                          for satin in centerlines(narrow, cfg, cfg.thin.satin_min_mm, cfg.fill.satin_max_width_mm, width_from=part))
-        for satin in centerlines(thin_parts, cfg):
-            if satin.width < cfg.detail.min_mm:
-                widened += 1
-            satins.append(SatinLine(region.thread, satin))
-
-    _assign_angles(fills, cfg.fill.angles, t)
+    _assign_angles(fills, cfg.fill.angles, cfg.thin.threshold_mm)
     if cfg.fill.overlap_mm > 0:
         for fill in fills:
             grown = clean(fill.geometry.buffer(cfg.fill.overlap_mm, quad_segs=8).intersection(silhouette))
             fill.geometry = polygons(grown)[0] if polygons(grown) else fill.geometry
-    _assign_flows(fills, reduced.roles, cfg.fill.flow)
+    _assign_flows([f for f in fills if f.layer == "fill"], reduced.roles, cfg.fill.flow)
 
     warnings = []
     if dropped:
@@ -100,6 +79,41 @@ def assign_attributes(reduced: ReducedDrawing, cfg: Config, line_art_hex: str | 
     if widened:
         warnings.append(Warning("detail_widened", f"{widened} line(s) narrower than {cfg.detail.min_mm} mm were widened to satin ≥ {cfg.thin.satin_min_mm} mm"))
     return Attributed(fills, satins, dropped, warnings)
+
+
+def _region_stitches(region: ColorRegion, cfg: Config, layer: str) -> tuple[list[FillPart], list[SatinLine], int, int]:
+    """Tatami for wide parts, satin for narrow ones. In the line layer every thin part is a line; in the fill
+    layer thin bits touching their own fill are narrow ends of that fill and stay with it."""
+    t = cfg.thin.threshold_mm
+    geom = region.geometry
+    thick = clean(geom.buffer(-t / 2, quad_segs=8).buffer(t / 2, quad_segs=8).intersection(geom))
+    fills: list[FillPart] = []
+    satins: list[SatinLine] = []
+    dropped = widened = 0
+    thin_parts: list[Polygon] = []
+    absorbed: list[Polygon] = []
+    for part in polygons(clean(geom.difference(thick))):
+        # Corner leftovers of an opening stay with the fill they belong to.
+        touching = not thick.is_empty and part.distance(thick) < 0.05
+        if touching and (part.area < t * t or layer == "fill"):
+            absorbed.append(part)
+        elif _too_small(part, cfg.detail.min_mm):
+            dropped += 1
+        else:
+            thin_parts.append(part)
+    for part in polygons(union([thick, *absorbed])):
+        if _too_small(part, cfg.detail.min_mm):
+            dropped += 1
+            continue
+        wide, narrow = _split_narrow(part, cfg.fill.satin_max_width_mm)
+        fills.extend(FillPart(region.thread, p, layer=layer) for p in wide)
+        satins.extend(SatinLine(region.thread, satin, layer)
+                      for satin in centerlines(narrow, cfg, cfg.thin.satin_min_mm, cfg.fill.satin_max_width_mm, width_from=part))
+    for satin in centerlines(thin_parts, cfg):
+        if satin.width < cfg.detail.min_mm and not satin.run:
+            widened += 1
+        satins.append(SatinLine(region.thread, satin, layer))
+    return fills, satins, dropped, widened
 
 
 def _assign_flows(fills: list[FillPart], roles: dict[str, BaseGeometry], flows: dict[str, str]) -> None:
@@ -215,7 +229,13 @@ def centerlines(parts: list[Polygon], cfg: Config, min_width: float | None = Non
         if len(set(line.coords)) < (3 if closed else 2) or line.length < cfg.detail.min_mm:
             continue
         line = _smooth(line, closed)
-        median_half = float(np.median([half_at(x, y) for x, y in line.coords]))
+        # Width is read on the skeleton itself: the smoothed curve cuts corners and would under-measure.
+        median_half = float(np.median([dist[r, c] for r, c in path]))
+        if 2 * median_half < cfg.thin.running_max_mm and width_from is None:
+            # Hairline details (a mouth, a whisker) read better as a fine triple run than a satin widened to 1 mm.
+            centre = line.simplify(0.03, preserve_topology=False)
+            out.append(Satin(([], []), LineString([*centre.coords]), round(2 * median_half, 3), closed, run=True))
+            continue
         width = 2 * min(max(median_half, min_half), max_half)
         # Loops too small to have an inside, and stubs barely longer than wide, are stitched as one mark.
         if closed and Polygon(line.coords).buffer(-width / 2).is_empty:

@@ -33,6 +33,7 @@ class FillConfig:
     random_jitter_percent: float
     staggers: int
     underlay: bool
+    underlay_inset_mm: float
     overlap_mm: float
     flow: dict[str, str]
 
@@ -44,6 +45,10 @@ class ThinConfig:
     satin_max_mm: float
     zigzag_spacing_mm: float
     pull_compensation_mm: float
+    short_stitch_inset_percent: float
+    short_stitch_distance_mm: float
+    running_max_mm: float
+    running_stitch_length_mm: float
     spur_min_mm: float
     simplify_mm: float
 
@@ -150,6 +155,7 @@ def load_config(path: str | Path | None = None) -> Config:
             random_jitter_percent=float(raw["fill"]["random_jitter_percent"]),
             staggers=int(raw["fill"]["staggers"]),
             underlay=bool(raw["fill"]["underlay"]),
+            underlay_inset_mm=float(raw["fill"]["underlay_inset_mm"]),
             overlap_mm=float(raw["fill"]["overlap_mm"]),
             flow={k: str(v) for k, v in raw["fill"].get("flow", {}).items()},
         ),
@@ -159,6 +165,10 @@ def load_config(path: str | Path | None = None) -> Config:
             satin_max_mm=float(raw["thin"]["satin_max_mm"]),
             zigzag_spacing_mm=float(raw["thin"]["zigzag_spacing_mm"]),
             pull_compensation_mm=float(raw["thin"]["pull_compensation_mm"]),
+            short_stitch_inset_percent=float(raw["thin"]["short_stitch_inset_percent"]),
+            short_stitch_distance_mm=float(raw["thin"]["short_stitch_distance_mm"]),
+            running_max_mm=float(raw["thin"]["running_max_mm"]),
+            running_stitch_length_mm=float(raw["thin"]["running_stitch_length_mm"]),
             spur_min_mm=float(raw["thin"]["spur_min_mm"]),
             simplify_mm=float(raw["thin"]["simplify_mm"]),
         ),

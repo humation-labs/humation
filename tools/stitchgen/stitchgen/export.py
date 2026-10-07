@@ -51,6 +51,8 @@ def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config, guided: bool = T
                 "inkstitch:row_spacing_mm": fmt_coord(cfg.fill.row_spacing_mm),
                 "inkstitch:max_stitch_length_mm": fmt_coord(cfg.fill.max_stitch_length_mm),
                 "inkstitch:fill_underlay": str(cfg.fill.underlay),
+                # Keep the underlay inside the top stitches so it never peeks out at the edges.
+                "inkstitch:fill_underlay_inset_mm": fmt_coord(cfg.fill.underlay_inset_mm),
             }
             if cfg.fill.pattern == "random":
                 # Random stitch lengths: no needle-point pattern, the surface reads as plain straight stitches.
@@ -67,6 +69,13 @@ def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config, guided: bool = T
             else:
                 attrs["inkstitch:fill_method"] = "tatami_fill"
                 attrs["inkstitch:angle"] = fmt_coord(item.angle)
+        elif item.kind == "satin" and item.satin is not None and item.satin.run:
+            d = geom_to_path_d(frame.place(item.satin.centre)) + (" Z" if item.satin.closed else "")
+            attrs = {
+                "style": f"fill:none;stroke:{item.thread.hex};stroke-width:0.1",
+                "inkstitch:running_stitch_length_mm": fmt_coord(cfg.thin.running_stitch_length_mm),
+                "inkstitch:bean_stitch_repeats": "1",  # each stitch sewn forward, back, forward: a bolder line
+            }
         elif item.kind == "satin" and item.satin is not None:
             # Two rails with equal node counts: Ink/Stitch uses each node pair as a rung.
             d = " ".join(_polyline_d(rail, frame) for rail in item.satin.rails)
@@ -81,6 +90,9 @@ def inkstitch_svg(items: list[Item], frame: Frame, cfg: Config, guided: bool = T
                 "inkstitch:contour_underlay": "True" if wide else "False",
                 "inkstitch:zigzag_underlay": "True" if wide else "False",
                 "inkstitch:pull_compensation_mm": fmt_coord(cfg.thin.pull_compensation_mm),
+                # On tight curves the inside of a satin crowds; every other stitch stops short there.
+                "inkstitch:short_stitch_inset": fmt_coord(cfg.thin.short_stitch_inset_percent),
+                "inkstitch:short_stitch_distance_mm": fmt_coord(cfg.thin.short_stitch_distance_mm),
             }
         else:
             d = geom_to_path_d(frame.place(item.geometry))
