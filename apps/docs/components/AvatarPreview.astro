@@ -2,8 +2,10 @@
 import { humation1 } from "@humation/assets-humation-1";
 import { createAvatar } from "@humation/core";
 
+import { avatarSrc } from "./avatar-files";
+
 // プレビューは画像を置くのではなく @humation/core で実際に描く。
-// 入力は固定なのでビルド時に描き切り、ブラウザには <img> だけ届く。
+// 入力は固定なのでビルド時に描き切り、ブラウザには <img> と SVG ファイルだけ届く。
 interface Props {
   seed?: string;
   selections?: Record<string, string>;
@@ -22,12 +24,13 @@ const {
   alt = "",
 } = Astro.props;
 
-const src = createAvatar(humation1, {
+const avatar = createAvatar(humation1, {
   seed,
   selections,
   colors,
   background,
-}).toDataUri();
+});
+const src = avatarSrc(avatar.toString(), avatar.toDataUri());
 ---
 
 <img
@@ -35,6 +38,8 @@ const src = createAvatar(humation1, {
   alt={alt}
   width={size}
   height={size}
+  loading="lazy"
+  decoding="async"
   data-no-zoom
   class="rounded-md"
   style={`width:${size}px;height:${size}px`}

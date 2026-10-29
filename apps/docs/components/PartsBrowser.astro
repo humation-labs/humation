@@ -1,0 +1,25 @@
+---
+import { humation1 } from "@humation/assets-humation-1";
+import { createPartPreview } from "@humation/core";
+
+import { avatarSrc } from "./avatar-files";
+import PartsBrowserClient, { SLOTS, type PartEntry } from "./PartsBrowserClient";
+
+// 全パーツ分のプレビューはビルド時に描き、島には名前と画像の URL だけ渡す。
+const entries: PartEntry[] = humation1.parts
+  .filter((part) => (SLOTS as readonly string[]).includes(part.selectionSlot))
+  // `none` は「何も着けない」を表す空のパーツで、プレビューが白紙になる。
+  // 選び方は本文の Empty slots で説明しているので一覧には出さない。
+  .filter((part) => (part.name ?? part.id) !== "none")
+  .map((part) => {
+    const preview = createPartPreview(humation1, part);
+    return {
+      id: part.id,
+      name: part.name ?? part.id,
+      slot: part.selectionSlot,
+      previewSrc: avatarSrc(preview.toString(), preview.toDataUri()),
+    };
+  });
+---
+
+<PartsBrowserClient client:visible entries={entries} />

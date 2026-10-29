@@ -1,37 +1,22 @@
-import { humation1 } from "@humation/assets-humation-1";
-import { createPartPreview } from "@humation/core";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
-const SLOTS = ["head", "body", "bottom", "item", "glasses"] as const;
+export const SLOTS = ["head", "body", "bottom", "item", "glasses"] as const;
 type Slot = (typeof SLOTS)[number];
 
-type Entry = {
+// 一覧の中身は PartsBrowser.astro がビルド時に作る。島で生成すると
+// マニフェストと @humation/core (700KB 超) がブラウザに載る。
+export type PartEntry = {
   id: string;
   name: string;
   slot: string;
   previewSrc: string;
 };
 
-// 全パーツ分のプレビューをここで生成する。props で渡すと SSR 済みの
-// マークアップと island の props JSON に二重に載ってしまう。
-function buildEntries(): Entry[] {
-  return (
-    humation1.parts
-      .filter((part) => SLOTS.includes(part.selectionSlot as Slot))
-      // `none` は「何も着けない」を表す空のパーツで、プレビューが白紙になる。
-      // 選び方は本文の Empty slots で説明しているので一覧には出さない。
-      .filter((part) => (part.name ?? part.id) !== "none")
-      .map((part) => ({
-        id: part.id,
-        name: part.name ?? part.id,
-        slot: part.selectionSlot,
-        previewSrc: createPartPreview(humation1, part).toDataUri(),
-      }))
-  );
-}
-
-export default function PartsBrowser() {
-  const entries = useMemo(() => buildEntries(), []);
+export default function PartsBrowserClient({
+  entries,
+}: {
+  entries: PartEntry[];
+}) {
   const [query, setQuery] = useState("");
   const [slot, setSlot] = useState<Slot | "all">("all");
   const [copied, setCopied] = useState("");
@@ -42,7 +27,7 @@ export default function PartsBrowser() {
       (query === "" || entry.name.includes(query.trim().toLowerCase())),
   );
 
-  async function copyName(entry: Entry) {
+  async function copyName(entry: PartEntry) {
     try {
       await navigator.clipboard.writeText(entry.name);
       setCopied(entry.id);

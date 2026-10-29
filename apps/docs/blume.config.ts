@@ -1,4 +1,40 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
 import { defineConfig } from "blume";
+import type { AstroIntegration } from "astro";
+
+import { AVATAR_DIR, avatarRegistry } from "./components/avatar-files";
+
+// Blume enables prefetching but defaults to hover, which starts too late for
+// quick sidebar clicks. Astro can prefetch visible links before interaction.
+const prefetchVisibleLinks: AstroIntegration = {
+  name: "humation-prefetch-visible-links",
+  hooks: {
+    "astro:config:setup"({ updateConfig }) {
+      updateConfig({
+        prefetch: { prefetchAll: true, defaultStrategy: "viewport" },
+      });
+    },
+  },
+};
+
+// ページの描画中に集めたプレビュー SVG を dist/avatars/ に書き出す。
+// 集め方と理由は components/avatar-files.ts を参照。
+const writeAvatarFiles: AstroIntegration = {
+  name: "humation-avatar-files",
+  hooks: {
+    async "astro:build:done"({ dir, logger }) {
+      const files = avatarRegistry();
+      const outDir = fileURLToPath(new URL(`${AVATAR_DIR}/`, dir));
+      await mkdir(outDir, { recursive: true });
+      await Promise.all(
+        [...files].map(([name, svg]) => writeFile(`${outDir}${name}`, svg)),
+      );
+      logger.info(`Wrote ${files.size} avatar previews to /${AVATAR_DIR}/`);
+    },
+  },
+};
 
 export default defineConfig({
   title: "Humation Docs",
@@ -6,34 +42,22 @@ export default defineConfig({
     "Deterministic hand-drawn avatars from local SVG assets. No API call required.",
   // 既定の docs/ から content/ に変更するため、コンテンツルートを明示する。
   content: { root: "content" },
+  integrations: [prefetchVisibleLinks, writeAvatarFiles],
+  // ページ末尾の「このページは役に立ちましたか？」は集計先を持たないので出さない。
+  feedback: false,
   logo: {
     image: "/icon_humation.png",
   },
-  // 「Edit on GitHub」のリンク元。OSS リポの docs/ は内部設計文書が使っているので、
-  // ドキュメント本体の置き場所である apps/docs/ を指す。
   github: { owner: "humation-labs", repo: "humation", dir: "apps/docs" },
   theme: {
-    // config に置いた accent / action / background は Blume が
-    // :root[data-theme="dark"] にも書き出す (src/theme/palette.ts)。
-    // teal はそのままだとダーク背景で沈むので明度だけ持ち上げる。
     accent: { light: "#008f8c", dark: "oklch(0.78 0.1 192)" },
     action: "#ff4d2e",
-    // ライトが純白を外したオフホワイトなので、ダークも純黒から外す。
-    // ダークは Tailwind neutral の段に乗せた純グレー (zinc の青紫寄りは使わない)。
-    // これに合わせた中性色一式は theme.css のダークブロックで持つ。
     background: { light: "#fdfdfc", dark: "#171717" },
   },
-  // Blume が site URL を自動検出するのは Vercel / Netlify / Cloudflare Pages。
-  // wrangler で Workers に直接出す構成では環境変数が来ないので明示する。
-  // 未設定だと sitemap.xml / robots.txt / llms.txt が黙って生成されない。
   deployment: { site: "https://docs.humation.app" },
   seo: {
     og: {
-      // カードは上の logo.image を見ず、SVG を 1 枚だけ受け取る (未設定だと "H" タイル)。
-      // ヘッダーと同じアイコン + ワードマークを 1 枚に合成したものがこれ。
       logo: "/logo_humation_og.svg",
-      // カードの組み込みフォントは Latin のみで、ja のタイトルが豆腐になる。
-      // theme.css はシステムフォント指定なのでカード側から引けず、ここで名指しする。
       fonts: ["Inter", "Noto Sans JP"],
     },
   },

@@ -2,16 +2,20 @@
 import { humation1 } from "@humation/assets-humation-1";
 import { createPartPreview, getPartsForUiGroup } from "@humation/core";
 
+import { avatarSrc } from "./avatar-files";
 import Example from "./Example.astro";
 import PickerDemoClient from "./PickerDemoClient";
 
 // 本文で説明している bodyOptions を、そのままデモの選択肢として使う。
 // プレビューの生成はビルド時に済ませ、island には結果だけ渡す。
-const options = getPartsForUiGroup(humation1, "body").map((part) => ({
-  id: part.id,
-  name: part.name ?? part.id,
-  previewSrc: createPartPreview(humation1, part).toDataUri(),
-}));
+const options = getPartsForUiGroup(humation1, "body").map((part) => {
+  const preview = createPartPreview(humation1, part);
+  return {
+    id: part.id,
+    name: part.name ?? part.id,
+    previewSrc: avatarSrc(preview.toString(), preview.toDataUri()),
+  };
+});
 
 const code = `import { createPartPreview, getPartsForUiGroup } from '@humation/core';
 import { humation1 } from '@humation/assets-humation-1';

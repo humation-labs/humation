@@ -13,14 +13,12 @@ export default defineComponents({
     // 中の PickerDemoClient だけが island。選択肢はビルド時に作って渡す。
     PickerGuideExample: "./components/PickerGuideExample.astro",
     AvatarOptionsReference: "./components/AvatarOptionsReference.astro",
+    // 検索・絞り込み・コピーは中の PartsBrowserClient (島) が持つ。
+    // プレビューはここでビルド時に作り、画像の URL だけを渡す。
+    PartsBrowser: "./components/PartsBrowser.astro",
     CreateAvatarOptionsReference:
       "./components/CreateAvatarOptionsReference.astro",
     HelpersReference: "./components/HelpersReference.astro",
-  },
-  islands: {
-    // 検索・絞り込み・コピーを持つので島。プレビュー全件を
-    // props で渡すと SSR 分と二重になるため、島の中で生成する。
-    PartsBrowser: "./components/PartsBrowser.tsx",
   },
   layout: {
     // ロゴ + ブランド名に SDK バージョンのバッジを足すためだけの差し替え。
