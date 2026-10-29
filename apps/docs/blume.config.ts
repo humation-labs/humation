@@ -49,7 +49,7 @@ export default defineConfig({
     sidebar: [
       {
         label: "Guides",
-        items: ["/", "/react", "/core", "/customizing", "/state"],
+        items: ["/", "/react", "/core", "/swift", "/customizing", "/state"],
       },
       {
         label: "Reference",

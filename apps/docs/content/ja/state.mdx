@@ -22,9 +22,9 @@ type HumationAvatarState = {
     bottom?: string;
     skin?: string;
     stroke?: string;
-    background?: string;
   };
+  background?: string;
 };
 ```
 
-長く保存するデータには、`hm1-p-000020` のような正規 ID がいちばん安定しています。`braids` のような人が読みやすい名前は、コードやプロンプトで使うのに便利です。
+長く保存するデータには、`hm1-p-000020` のような正規 ID がいちばん安定しています。`braids` のような人が読みやすい名前は、コードやプロンプトで使うのに便利です。ただし [Swift](/swift) は正規 ID しか受け付けないので、Swift のアプリとデータを共有する場合は ID を保存してください。

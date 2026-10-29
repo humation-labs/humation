@@ -1,0 +1,35 @@
+---
+title: Swift
+description: "Swift のアプリでは humation-swift を使います。Web 版のパッケージと同じアバターを描画します。"
+---
+[humation-swift](https://github.com/humation-labs/humation-swift) は、エンジンをネイティブに移植したパッケージです。シードからパーツを選ぶハッシュは `@humation/core` と同じなので、同じシードからは Web でもネイティブアプリでも同じアバターになります。
+
+描画には Core Graphics を使い、`WKWebView` もネットワーク通信も使いません。Humation 1 のアセットパッケージも同梱されています。
+
+## インストール [#install]
+
+Swift Package Manager でパッケージを追加し、ターゲットに `Humation` プロダクトを追加します。
+
+```swift
+.package(url: "https://github.com/humation-labs/humation-swift.git", from: "1.3.0")
+```
+
+humation-swift のバージョンは npm パッケージとは別に管理されています。
+
+## シードから描画する [#render-from-a-seed]
+
+```swift
+import Humation
+
+HumationAvatarView(seed: user.id, size: 96)
+```
+
+画像としての出力、プロファイルの保存、組み込みのエディタ、カスタムのマニフェストについては [humation-swift の README](https://github.com/humation-labs/humation-swift#readme) を参照してください。
+
+## Web とアバターを共有する [#share-avatars-with-the-web]
+
+Swift はユーザーのアバターを `HumationProfile` として保存します。これは `selections` と `colors` を持つ JSON にエンコードされます。Web 版のパッケージとはいくつか違いがあるので、同じデータを両方で使うときは次の点を確認してください。
+
+- Swift は `hm1-p-000020` のような正規 ID しか受け付けません。`braids` のようなパーツ名やエイリアスは解決されません。`@humation/core` の `toJSON()` は正規 ID を返し、`resolvePartId` で名前を ID に変換できます。
+- Swift は背景色を `colors.background` に保存します。Web 版のパッケージは背景色を独立した `background` オプションで受け取り、`colors` の中の `background` は無視します。
+- シードはパーツの一覧から選ぶので、両方で同じバージョンのアセットを使ってください。humation-swift 1.3.0 には `@humation/assets-humation-1` 1.0.3 が同梱されています。

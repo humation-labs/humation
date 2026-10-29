@@ -7,10 +7,10 @@
       "ja": "edb8053d2ac72d75"
     },
     "content/index.mdx": {
-      "ja": "37b25ffe1c960862"
+      "ja": "367126afd587fe33"
     },
     "content/llms.mdx": {
-      "ja": "4610d477a3484cc2"
+      "ja": "4bb6b583e0ff540d"
     },
     "content/options.mdx": {
       "ja": "3dd67d35ceac7576"
@@ -22,7 +22,10 @@
       "ja": "adff49db1137ac6c"
     },
     "content/state.mdx": {
-      "ja": "e39aaf049707aefc"
+      "ja": "2e64716116b7ddc2"
+    },
+    "content/swift.mdx": {
+      "ja": "c1f97f81956c3cb3"
     }
   },
   "version": 1

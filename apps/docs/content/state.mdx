@@ -23,9 +23,9 @@ type HumationAvatarState = {
     bottom?: string;
     skin?: string;
     stroke?: string;
-    background?: string;
   };
+  background?: string;
 };
 ```
 
-For long-lived saved data, canonical IDs such as `hm1-p-000020` are the most stable. Human-readable names such as `braids` are convenient for code and prompts.
+For long-lived saved data, canonical IDs such as `hm1-p-000020` are the most stable. Human-readable names such as `braids` are convenient for code and prompts, but [Swift](/swift) accepts canonical IDs only. Store IDs if the data is shared with a Swift app.

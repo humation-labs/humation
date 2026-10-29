@@ -1,0 +1,36 @@
+---
+title: Swift
+description: "For Swift apps, use humation-swift. It renders the same avatars as the web packages."
+---
+
+[humation-swift](https://github.com/humation-labs/humation-swift) is a native port of the engine. A seed picks parts with the same hash as `@humation/core`, so the same seed gives the same avatar on the web and in a native app.
+
+It renders with Core Graphics, without a `WKWebView` or network access, and bundles the Humation 1 asset package.
+
+## Install
+
+Add the package with Swift Package Manager, then add the `Humation` product to your target.
+
+```swift
+.package(url: "https://github.com/humation-labs/humation-swift.git", from: "1.3.0")
+```
+
+humation-swift is versioned separately from the npm packages.
+
+## Render from a seed
+
+```swift
+import Humation
+
+HumationAvatarView(seed: user.id, size: 96)
+```
+
+Image output, saved profiles, the built-in editor, and custom manifests are covered in the [humation-swift README](https://github.com/humation-labs/humation-swift#readme).
+
+## Share avatars with the web
+
+Swift stores a user's avatar as `HumationProfile`, which encodes to JSON with `selections` and `colors`. It differs from the web packages in a few places, so check these when the same data is used on both sides.
+
+- Swift accepts canonical IDs such as `hm1-p-000020` only. Part names and aliases such as `braids` are not resolved. `toJSON()` in `@humation/core` returns canonical IDs, and `resolvePartId` converts a name to its ID.
+- Swift stores the background color as `colors.background`. The web packages take it as the separate `background` option and ignore `background` inside `colors`.
+- A seed picks from the list of parts, so use the same version of the assets on both sides. humation-swift 1.3.0 bundles `@humation/assets-humation-1` 1.0.3.
